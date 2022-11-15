@@ -1,0 +1,452 @@
+---
+title: "hg38_Mutation_Filtering"
+author: Samantha Schuster
+output: html_document:
+    toc: true
+date: "2022-11-13"
+---
+
+Load libraries
+```{r Libraries}
+library(tidyverse)
+```
+
+Import datasets with high cutoffs:
+Quigley cutoffs:Ref_reads_in_normal>=8, Total_reads_in_Tumor>=28, Alt_reads_in_Tumor>=10, Tumor_VAF>=0.1, Normal_VAF<=0.05
+UW/Lucap cutoffs: Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05
+
+Import and perform mutational analysis on Quigley samples:
+```{r Quigley}
+quig_Mutect2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/david_101/original_calls/", pattern = "Annotated_hg38_mutect2_with_david_pon_.*\\.txt", full.names = TRUE, recursive = FALSE)
+quig_Strelka2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/david_101/original_calls/", pattern = "Annotated_Strelka2_snvs.*\\.txt", full.names = TRUE, recursive = FALSE)
+quig_MuSE_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/david_101/original_calls/", pattern = "Annotated_MuSE.*\\.txt", full.names = TRUE, recursive = FALSE)
+quig_VarScan2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/david_101/utr3_unfiltered_calls/", pattern = "Annotated_Varscan2.*\\.txt", full.names = TRUE, recursive = FALSE)
+
+
+#Quigley, Mutect2, Quigley panel of normals (5,067 unique mutations)
+dfList <- lapply(quig_Mutect2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -11, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "Mutect2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=28, Alt_reads_in_Tumor>=10, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_quig_Mutect2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#Quigley, Strelka2 (5,557 unique mutations)
+dfList <- lapply(quig_Strelka2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -11, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "Strelka2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=28, Alt_reads_in_Tumor>=10, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_quig_Strelka2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#Quigley, MuSE (7,306 unique mutations)
+dfList <- lapply(quig_MuSE_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -11, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "MuSE")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=28, Alt_reads_in_Tumor>=10, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_quig_MuSE <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#Quigley, VarScan2 (13,539 unique mutations)
+dfList <- lapply(quig_VarScan2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -11, -5) #get patient id from file name
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=28, Alt_reads_in_Tumor>=10, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "VarScan2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  return(t)
+})
+allmuts_quig_VarScan2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+rm(quig_MuSE_files,quig_Mutect2_files,quig_Strelka2_files,quig_VarScan2_files)
+```
+
+Import and perform mutational analysis on UW samples:
+```{r UW}
+uw_Mutect2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/utr_sequencing_uw_samples/original_calls/", pattern = "Annotated_hg38_Mutect2_with_uw_pon_.*\\.txt", full.names = TRUE, recursive = FALSE)
+uw_Strelka2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/utr_sequencing_uw_samples/original_calls/", pattern = "Annotated_Strelka2_snvs.*\\.txt", full.names = TRUE, recursive = FALSE)
+uw_MuSE_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/utr_sequencing_uw_samples/original_calls/", pattern = "Annotated_MuSE.*\\.txt", full.names = TRUE, recursive = FALSE)
+uw_VarScan2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/utr_sequencing_uw_samples/utr3_unfiltered_calls", pattern = "Annotated_Varscan2.*\\.txt", full.names = TRUE, recursive = FALSE)
+
+
+#UW, Mutect2, UW panel of normals (11,254 unique mutations)
+dfList <- lapply(uw_Mutect2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -10, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "Mutect2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_uw_Mutect2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+
+#UW, Strelka2 (25,326 unique mutations)
+dfList <- lapply(uw_Strelka2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -10, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "Strelka2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_uw_Strelka2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#UW, MuSE (20,398 unique mutations)
+dfList <- lapply(uw_MuSE_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -10, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "MuSE")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_uw_MuSE <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#UW, VarScan2 (20,969 unique mutations)
+dfList <- lapply(uw_VarScan2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -10, -5) #get patient id from file name
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "VarScan2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  return(t)
+})
+allmuts_uw_VarScan2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+rm(uw_VarScan2_files, uw_MuSE_files, uw_Mutect2_files, uw_Strelka2_files)
+```
+
+Import and perform mutational analysis on Lucap samples:
+```{r Lucap}
+lucap_Mutect2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/lucaps_exome/original_calls/", pattern = "Annotated_hg38_Mutect2_with_uw_pon_lucap.*\\.txt", full.names = TRUE, recursive = FALSE)
+lucap_Strelka2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/lucaps_exome/original_calls/", pattern = "Annotated_Strelka2_snvs.*\\.txt", full.names = TRUE, recursive = FALSE)
+lucap_MuSE_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/lucaps_exome/original_calls/", pattern = "Annotated_MuSE.*\\.txt", full.names = TRUE, recursive = FALSE)
+lucap_VarScan2_files <- list.files(path= "MAIN_DATA/UTR_Project_hg38/lucaps_exome/utr3_unfiltered_calls/", pattern = "Annotated_Varscan2.*\\.txt", full.names = TRUE, recursive = FALSE)
+
+#lucap, Mutect2, UW panel of normals (2,416 unique mutations)
+dfList <- lapply(lucap_Mutect2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -12, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "Mutect2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_lucap_Mutect2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#lucap, Strelka2 (2,961 unique mutations)
+dfList <- lapply(lucap_Strelka2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -12, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "Strelka2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_lucap_Strelka2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#lucap, MuSE (2,473 unique mutations)
+dfList <- lapply(lucap_MuSE_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -12, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "MuSE")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_lucap_MuSE <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+
+#lucap, VarScan2 (2,665 unique mutations)
+dfList <- lapply(lucap_VarScan2_files, function(x) {
+  t <- read.delim(x, stringsAsFactors = FALSE) #read in file
+  patient <- str_sub(x, -12, -5) #get patient id from file name
+  
+  #add new columns
+  t <- mutate(t, sampleName = patient)
+  t <- mutate(t, Program = "VarScan2")
+  t <- mutate(t, id = paste(Chr, ":", Start, "_", Ref, "-", Alt, sep=""))
+  
+  #add filters
+  t <- t[-c(8,18:21,23:39)]
+  t <- filter(t, Func.refGene=="UTR3")
+  t <- filter(t, Ref %in% c("T","C","G","A"), Alt %in% c("T","C","G","A"))
+  t <- filter(t, Ref_reads_in_normal>=8, Total_reads_in_Tumor>=14, Alt_reads_in_Tumor>=5, Tumor_VAF>=0.1, Normal_VAF<=0.05)
+  
+  return(t)
+})
+allmuts_lucap_VarScan2 <- do.call(rbind,dfList) #add all filtered dataframes to one full dataframe
+rm(dfList) #clear dfList
+rm(lucap_MuSE_files,lucap_Strelka2_files,lucap_Mutect2_files,lucap_VarScan2_files)
+```
+
+Mutations Called in 2+ Callers:
+```{r}
+#split by id & patient, then take only mutations called in 2+ callers per patient
+combined <- rbind(allmuts_quig_Mutect2, allmuts_quig_Strelka2, allmuts_quig_MuSE, allmuts_quig_VarScan2, allmuts_uw_Strelka2, allmuts_uw_Mutect2, allmuts_uw_MuSE, allmuts_uw_VarScan2, allmuts_lucap_Strelka2, allmuts_lucap_Mutect2, allmuts_lucap_MuSE, allmuts_lucap_VarScan2)
+combined <- split(combined, list(combined$id, combined$sampleName), drop=TRUE)
+combined = lapply(combined, function(s){
+  program = paste0(unique(s$Program), collapse=", ")
+  s = s[1, ]
+  s$Program = program
+  s
+})
+combined <- bind_rows(combined) #all mutations in each patient, callers combined
+
+combined$sampleName[combined$sampleName == "_lucap78"] <- "lucap78"
+combined$sampleName[combined$sampleName == "_lucap81"] <- "lucap81"
+combined$sampleName[combined$sampleName == "_lucap92"] <- "lucap92"
+
+combined_c <- split(combined, combined$id)
+combined_c = lapply(combined_c, function(s){
+  no = length( unique(s$sampleName) )
+  program = paste0(s$Program, collapse="; ") #will have callers listed for each patient, separated by ;
+  sam = paste0(unique(unlist(strsplit(s$sampleName, split = ", "))), collapse = ", ")
+  s = s[1, ]
+  s$sampleName = sam
+  s$patient_no = no
+  s$Program = program
+  s
+})
+combined_c <- bind_rows(combined_c)
+nrow(filter(combined_c, patient_no>1)) #3053 recurrent mutations
+
+combined_2 <- filter(combined, grepl(",", Program)) #only take mutations in each patient called in 2+ -> 31,118 unique mutations
+
+#now combine again by sampleName (split by id only)
+combined_2c <- split(combined_2, combined_2$id)
+combined_2c = lapply(combined_2c, function(s){
+  no = length( unique(s$sampleName) )
+  program = paste0(s$Program, collapse="; ") #will have callers listed for each patient, separated by ;
+  sam = paste0(unique(unlist(strsplit(s$sampleName, split = ", "))), collapse = ", ")
+  s = s[1, ]
+  s$sampleName = sam
+  s$patient_no = no
+  s$Program = program
+  s
+})
+combined_2c <- bind_rows(combined_2c)
+nrow(filter(combined_2c, patient_no>1)) #197 recurrent mutations
+```
+
+Remove hypermutated samples (10-068, DTB-083, & Lucap147)
+```{r Hypermutant}
+#filter out hypermutated from datasets: 
+combined_hyperremove <- filter(combined, !grepl("10-068|DTB-083|lucap147", sampleName)) #each row = mutation per patient, combined program
+##filter only mutations in 2+ callers
+combined_2_hyperremove <- filter(combined_hyperremove, grepl(",", Program))
+##now combine by id, show patients each mutation called in (each row = unique mutation)
+combined_2c_hyperremove <- split(combined_2_hyperremove, combined_2_hyperremove$id)
+combined_2c_hyperremove = lapply(combined_2c_hyperremove, function(s){
+  no = length( unique(s$sampleName) )
+  program = paste0(s$Program, collapse="; ") #will have callers listed for each patient, separated by ;
+  sam = paste0(unique(unlist(strsplit(s$sampleName, split = ", "))), collapse = ", ")
+  s = s[1, ]
+  s$sampleName = sam
+  s$patient_no = no
+  s$Program = program
+  s
+})
+combined_2c_hyperremove <- bind_rows(combined_2c_hyperremove) ##<<- this is fully filtered database of 3'UTR mutations##
+nrow(filter(combined_2c_hyperremove, patient_no>1)) #116 recurrent mutations 
+```
+
+Make aggregate mutation column:
+```{r Aggregate}
+#add aggregate column to mutations in 2+ callers
+combined_2c <- split(combined_2c, combined_2c$Gene.refGene)
+combined_2c = lapply(combined_2c, function(s){
+  no = length( unique(unlist(strsplit(s$sampleName, ", "))) )
+  temp_patients <- unique(unlist(strsplit(s$sampleName, ", ")))
+  s$Aggregate = no
+  s
+})
+combined_2c <- bind_rows(combined_2c)
+
+##add aggregate column to dataset without hypermutants (2+ callers)
+combined_2c_hyperremove <- split(combined_2c_hyperremove, combined_2c_hyperremove$Gene.refGene)
+combined_2c_hyperremove = lapply(combined_2c_hyperremove, function(s){
+  no = length( unique(unlist(strsplit(s$sampleName, ", "))) )
+  temp_patients <- unique(unlist(strsplit(s$sampleName, ", ")))
+  s$Aggregate = no
+  s
+})
+combined_2c_hyperremove <- bind_rows(combined_2c_hyperremove)
+```
+
+Venn Diagram:
+```{r}
+library(VennDiagram)
+library(RColorBrewer)
+myCol <- brewer.pal(4, "Pastel2")
+
+#full filtered dataset venn diagram:
+#make id lists: bind together by mutation caller, then filter out hypermutants and collect all unique IDs
+ids_hr_Strelka2 <- unique(filter(rbind(allmuts_lucap_Strelka2, allmuts_quig_Strelka2, allmuts_uw_Strelka2), !grepl("10-068|DTB-083|lucap147", sampleName))$id)
+ids_hr_Mutect2 <- unique(filter(rbind(allmuts_lucap_Mutect2, allmuts_quig_Mutect2, allmuts_uw_Mutect2), !grepl("10-068|DTB-083|lucap147", sampleName))$id)
+ids_hr_MuSE <- unique(filter(rbind(allmuts_lucap_MuSE, allmuts_quig_MuSE, allmuts_uw_MuSE), !grepl("10-068|DTB-083|lucap147", sampleName))$id)
+ids_hr_VarScan2 <- unique(filter(rbind(allmuts_lucap_VarScan2, allmuts_quig_VarScan2, allmuts_uw_VarScan2), !grepl("10-068|DTB-083|lucap147", sampleName))$id)
+
+venn.diagram(
+        x = list(ids_hr_Mutect2, ids_hr_MuSE, ids_hr_Strelka2, ids_hr_VarScan2),
+        category.names = c("Mutect2", "MuSE", "Strelka2", "VarScan2"),
+        filename = 'combined2c_hyperremoved_venn_diagram.png',
+        output=TRUE,
+        
+        # Output features
+        main = "Mutation Caller Overlap",
+        sub = "Full Filtered Database",
+        main.cex = .6,
+        sub.cex = .4, 
+        imagetype="png" ,
+        height = 480 , 
+        width = 600 , 
+        resolution = 300,
+        compression = "lzw",
+        
+        # Circles
+        lwd = 2,
+        lty = 'blank',
+        fill = myCol,
+        
+        # Numbers
+        cex = .4,
+        fontfamily = "sans",
+        
+        # Set names
+        cat.cex = 0.5,
+        cat.fontface = "bold"
+)
+
+```
+
+GSEA:
+```{r GSEA}
+#website with other databases: https://maayanlab.cloud/Enrichr/#stats
+library(enrichR)
+gsea_2c_hr <- filter(as.data.frame(enrichr(combined_2c_hyperremove$Gene.refGene, databases = "KEGG_2021_Human")), KEGG_2021_Human.Adjusted.P.value < 0.05)
+gsea_2c_hr <- gsea_2c_hr %>%
+  rename(Gene_set = KEGG_2021_Human.Term, FDR = KEGG_2021_Human.Adjusted.P.value) %>%
+  mutate(overlap = as.numeric(sub("\\/.*", "", KEGG_2021_Human.Overlap)))
+gsea_2c_hr$Gene_set<- factor(gsea_2c_hr$Gene_set, levels=rev(gsea_2c_hr$Gene_set))
+
+ggplot(gsea_2c_hr[1:13,], aes(x=-log10(FDR), y=Gene_set, size=overlap,color=-log10(FDR))) + 
+  geom_point() +
+  scale_size_area(max_size = 10) +
+  scale_colour_gradient(low="blue",high="orange") + 
+  labs(y= "")
+ggsave("3UTR_Mutations_All_GSEA_KEGG.pdf", height=5, width=7)
+```

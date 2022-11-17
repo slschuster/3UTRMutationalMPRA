@@ -1,0 +1,235 @@
+---
+title: "Extracting 3' utr sequences"
+author: "Sonali Arora"
+date: "Nov 16, 2022"
+output:
+  html_document:
+    toc: true
+    them
+
+---
+
+# sequences for 3'utr. 
+
+```{r}
+
+rm(list=ls())
+
+library(ShortRead)
+library(GenomicFeatures)
+library(org.Hs.eg.db)
+library(BSgenome.Hsapiens.UCSC.hg38)
+genome = BSgenome.Hsapiens.UCSC.hg38
+
+ensembl = import("bioinformatic_references/Homo_sapiens.GRCh38.101.chr.gtf")
+seqlevelsStyle(ensembl) ="UCSC"
+ensembl.gn= ensembl[which(ensembl$type=="gene"), ]
+ensembl_utr = ensembl[which(ensembl$type=="three_prime_utr"), ]
+
+setwd("MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis")
+
+mutations_df = read.csv("Master_3UTR_Mutations_Hyperremoved_2+.csv", header=T, stringsAsFactors=FALSE)
+need_gr <- makeGRangesFromDataFrame(mutations_df, keep.extra.columns = TRUE)
+mut_genes = unique(unlist(strsplit(mutations_df$Gene.refGene, ",")))
+hits = findOverlaps(need_gr, ensembl_utr)
+hits = as.data.frame(hits)
+
+need_utr = lapply(1:length(need_gr), function(idx){
+  found = which(hits[,1]==idx)
+  if(length(found)==0){
+    temp_utr = ensembl[subjectHits(findOverlaps(need_gr[idx, ], ensembl)), ]
+    temp_types = unique(as.character(temp_utr$type))
+    if(length(temp_types)>2){
+      # overlaps with gene transcript, cds, exon - so get the cds/exon.
+      rm = which(temp_utr$type %in% c("gene", "transcript"))
+      temp_utr = temp_utr[-rm, ]
+    }else{
+      # only gene / transcript found for these :
+      temp_utr = temp_utr[ which(temp_utr$type=="transcript"), ]
+    }
+  }
+  if(length(found)!=0){
+    # overlaps with utr.
+    temp_hits= hits[found, ]
+    temp_utr = ensembl_utr[temp_hits[,2], ]
+  }
+  temp_mutation = need_gr[idx, ]
+
+  keep1 = which(temp_utr$transcript_biotype=="protein_coding")
+  keep2 = width(temp_utr)
+
+  if(all(keep1)){
+    # both are protein coding transcripts, keep the one with largest width
+    temp_utr = temp_utr[which.max(keep2), ]
+  }else{
+    temp_utr = temp_utr[keep1, ] # keep only transcript which is protein coding.
+    if(length(temp_utr)>1){
+      keep2 = width(temp_utr)
+      temp_utr = temp_utr[which.max(keep2), ]
+    }
+  }
+  if(length(temp_utr)!=0){
+    temp_200bp = paste0(c(as.character(seqnames(temp_mutation)), ":",start(temp_mutation) -100 , "-", end(temp_mutation) +100 ),
+                        collapse =  "")
+    temp_utr$temp_200bp = temp_200bp
+  }
+  ans = as.data.frame(temp_utr)
+  ans
+})
+
+trouble_idx = which(sapply(need_utr, nrow)==0)
+good_utr = need_utr[ -trouble_idx]
+good_utr = do.call(rbind, good_utr)
+good_utr = makeGRangesFromDataFrame(good_utr, keep.extra.columns=TRUE)
+good_200bp = as(good_utr$temp_200bp, "GRanges")
+strand(good_200bp) = strand(good_utr)
+
+ get sequence
+good_utr3_seq = getSeq(genome, good_200bp)
+tres = lapply(1:length(good_utr), function(gidx){
+  message(gidx)
+  utr3_seq = good_utr3_seq[gidx]
+  gene_dir = as.character(strand(good_utr[gidx]))
+  ir = good_gr[gidx]
+  temp_mutation  = start(ir)
+
+  start_pos = start(good_200bp[gidx]) # for 200bp region
+  end_pos = end(good_200bp[gidx]) # for 200 bp region
+
+  # split it up into 200bp.
+
+  ref_seq = as.character(utr3_seq)
+  ref_seq = strsplit(gsub("([[:alnum:]]{1})", "\\1 ", ref_seq), " ")[[1]]
+
+  alt_seq = ref_seq
+
+  # in a loop, do the following for each mutation :
+  # check if it falls within 3' utr.
+  # check strand of gene
+  # if gene is on negative strand, reverse the sequence.
+  # if gene is on negative strand, reverse the alt and ref allele.
+  # get ref sequence
+  # get alt sequence.
+
+  # change alt allele if gene is on negative direction.
+  if(gene_dir=="-"){
+    change_alt_all= sapply(ir$Alt, function(x){
+      x1=x
+      if(x1=="C"){
+        x1 = "G"
+      }else if(x1=="A"){
+        x1="T"
+      } else if (x1=="G"){
+        x1="C"
+      } else if(x1=="T"){
+        x1="A"
+      }
+      x1
+    })
+    change_ref_all= sapply(ir$Ref, function(x){
+      x1=x
+      if(x1=="C"){
+        x1 = "G"
+      }else if(x1=="A"){
+        x1="T"
+      } else if (x1=="G"){
+        x1="C"
+      } else if(x1=="T"){
+        x1="A"
+      }
+      x1
+    })
+    alt1= change_alt_all
+    ref1 = change_ref_all
+
+    names(ref_seq) = end_pos:start_pos
+    alt_pos = which(names(ref_seq) ==temp_mutation)
+    alt_seq = ref_seq
+    alt_seq[alt_pos] = alt1
+
+  }else{
+    alt1= NA_character_
+    ref1 = NA_character_
+
+    names(ref_seq) = start_pos : end_pos
+    alt_pos = which(names(ref_seq) ==temp_mutation)
+    alt_seq = ref_seq
+    alt_seq[alt_pos] = ir$Alt
+  }
+
+  ref_seq = paste0(ref_seq, collapse="")
+  alt_seq = paste0(alt_seq, collapse = "")
+
+  c(change_ref=ref1, change_alt=alt1, ref_seq, alt_seq)
+})
+tres = do.call(rbind, tres)
+colnames(tres) = c("changed_ref", "changed_alt", "ref_Sequence", "alt_sequence" )
+
+# start combining data:
+final_df = as.data.frame(good_utr, stringsAsFactors=FALSE)
+final_df$utr3_position = apply(final_df, 1, function(x){
+  paste0(c(x["seqnames"],":", as.numeric(x["start"]), "-", as.numeric(x["end"]) ), collapse="")
+})
+final_df = final_df[, c("utr3_position", "width", "strand", "source", "type",
+                        "gene_id", "gene_name", "transcript_id", "transcript_name", "temp_200bp")]
+res2 = mutations_df[  match(good_gr$id, mutations_df$id), ]
+final_df = cbind(res2, final_df, tres)
+
+write.table(final_df, "sequences/sequences_utr3.txt",
+    sep ="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+```
+
+
+
+# mutational proportional dist across utrs.
+
+```{r}
+rm(list=ls())
+library(ggplot2)
+seq = read.delim("sequences_all_14k_for_lukas_3_30_2021.txt", header=T, stringsAsFactors=FALSE)
+
+gr = as(seq$utr3_position, "GRanges")
+seq$dist_from_start = seq$Start - start(gr)
+midx = which(seq$strand =="-")
+seq$dist_from_start[midx] =end(gr)[midx] - seq$Start[midx]
+seq$utr3_width = width(gr)
+seq$percent = (as.numeric(seq$dist_from_start)/ as.numeric(seq$utr3_width))*100
+
+# all 3' utr mutation
+p3 = ggplot(seq, aes( x =percent)) + geom_histogram(color="black", fill="darkolivegreen1") +
+  ggtitle("All 3’UTR mutations found in dataset (14k)") +
+  xlab("Location of 3' UTR mutations as % length from ATG start site") +
+  ylab(" No of 3' UTR mutations") +
+  theme_bw()
+
+pdf("Histogram_utr3_positions_14k.pdf")
+print(p3)
+dev.off()
+
+```
+
+# getting deltaG values for all 201bp sequences
+
+Vienna RNA was installed following instructions from here: https://www.tbi.univie.ac.at/RNA/documentation.html
+It was then run on the extracted sequences.
+The deltaG values were extracted from the output file using R.
+
+```{}
+ViennaRNA/bin$ ./RNAfold small_seq_on_plasmid_April_2021/Twist.fa > output.txt
+```
+```{r}
+setwd("MAIN_DATA/UTR_Project_hg38/small_seq_on_plasmid_April_2021/rnafold")
+df = read.delim("output.txt", header=F, stringsAsFactors=FALSE)
+start = grep(">", df[,1])
+ans = lapply(start, function(x) c(df[x, 1], df[(x+1),1], df[(x+2), 1] ))
+ans_df = do.call(rbind, ans)
+ans_df = as.data.frame(ans_df)
+ans_df$free_energy = substr(ans_df[,3], 202, 210)
+ans_df = ans_df[,-3]
+colnames(ans_df) = c("merged_id", "seq_201bp", "energy")
+write.table(ans_df, "free_energy_minimum_Twist_order.txt",
+            sep ="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+```
+
+

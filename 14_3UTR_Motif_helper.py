@@ -1,3 +1,6 @@
+#Title: helper file for 3'UTR Mutation Motif Analysis
+#Author: Lukas Corey
+
 #! usr/bin/env/python3 
 import random
 def make_tri_nt_context_dic():

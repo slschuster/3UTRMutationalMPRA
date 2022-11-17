@@ -1,6 +1,7 @@
 ---
 title: "Hotspot_mutations"
 output: html_document
+Author: Samantha L. Schuster
 date: "2022-11-14"
 ---
 
@@ -11,10 +12,10 @@ library(hrbrthemes)
 ```
 
 ```{r import}
-utr3_muts <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv") %>%
+utr3_muts <- read_csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv") %>%
   select(Chr, Start, Gene.refGene, sampleName, id)
 
-utr3_combined <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/Master_3UTR_Mutations_Hyperremoved_2+.csv")
+utr3_combined <- read_csv("Master_3UTR_Mutations_Hyperremoved_2+.csv")
 ```
 
 Find mutations near each other (within 50bp)
@@ -46,7 +47,7 @@ pairs$Dist <- as.numeric(pairs$Dist)
 Distribution of hotspot distances
 
 ```{r}
-pairs <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/Hotspots/Hotspot mutations.csv")
+pairs <- read_csv("Hotspot mutations.csv")
 
 ggplot(pairs, aes(x=Dist)) + 
   geom_histogram(binwidth= 5, fill="#86608e", color="#e9ecef", alpha=0.9) + 
@@ -58,8 +59,8 @@ Compare to MPRA sig mutations
 
 ```{r}
 #MPRA results
-IVT_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Read_count_filtered/high_filters_downstream.csv")[,-1]
-poly_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv")[,-c(1,3:5,10:13)]
+IVT_MPRA <- read_csv("Read_count_filtered/high_filters_downstream.csv")[,-1]
+poly_MPRA <- read_csv("All_Polysome_MPRA_results.csv")[,-c(1,3:5,10:13)]
 
 IVT_sig <- IVT_MPRA %>% filter(sig_E == "Sig") %>% pull(barcode)
 MPRA_sig <- unique(poly_MPRA %>% filter(xtail_FDR_v2<0.1, Comparison %in% c("HighPoly:RNA","TotalPoly:RNA")) %>% pull(barcode))
@@ -79,7 +80,7 @@ intersect(MPRA_sig, hotspots)
 Make lollipop plots
 
 ```{r}
-sig_hot <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/Hotspots/Significant_hotspots.csv")
+sig_hot <- read_csv("Hotspots/Significant_hotspots.csv")
 
 temp <- sig_hot %>% filter(Gene == "RFX3")
 tstart <- temp$start[1]

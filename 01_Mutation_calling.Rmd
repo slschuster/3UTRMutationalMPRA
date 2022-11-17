@@ -1,0 +1,149 @@
+---
+title: "Mutation Calling"
+author: "Sonali Arora"
+date: "Nov 16, 2022"
+output:
+  html_document:
+    toc: true
+    them
+
+---
+# Obtaining publicly available datasets
+BAM files for 101 tumor/matched normal CRPC metastases patients were obtained
+from Quigley et al (dbGaP under accession code phs001648.v2.p1).
+bedtools “bamtofastq” (https://bedtools.readthedocs.io/en/latest/content/tools/bamtofastq.html)
+was used to extract raw sequencing data from BAM files. Fastq files
+for human mCRPC UTR sequencing data, RNASeq data, and ribosome profiling data
+were downloaded from Lim et al (dbGaP under accession code phs001825.v1.p1,
+GSE147250 and GSE171729, GEO repository GSE130465 respectively).
+
+All downloaded fastq files were aligned to hg38 using Bowtie2 (v2.4.2).
+The reference used for alignment was downloaded from GDC portal
+(https://gdc.cancer.gov/about-data/gdc-data-processing/gdc-reference-files).
+The reads with low quality were filtered and duplicates were marked
+using Picard (v2.25.0) and GATK (v4.2.5).
+
+
+# mouse subtraction (XenofiltR)
+Lucap samples were aligned to both hg38 and mm10 and then
+XenofiltR was  used in the following manner.
+
+```{r}
+rm(list=ls())
+library(XenofilteR)
+bp.param <- SnowParam(workers = 4, type = "SOCK")
+setwd("/MAIN_DATA/UTR_Project_hg38/lucaps_exome/pre_filter_files")
+hg38_samples = list.files(pattern = ".sort.hg38.bam$")
+mm10_samples = list.files(pattern = ".sort.mm10.bam$")
+Sample_list = data.frame( mm10_samples, hg38_samples)
+
+resdir = "MAIN_DATA/UTR_Project_hg38/lucaps_exome/post_filter_files"
+out_names = gsub(".sort.hg38.bam", "", Sample_list[,2])
+
+XenofilteR(sample.list = Sample_list, destination.folder = resdir,
+           bp.param = bp.param, output.names = out_names,
+           MM_threshold=4, Unmapped_penalty = 8)
+```
+
+# Creating ref bed files for mutation calling
+
+```{r}
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+txdb = TxDb.Hsapiens.UCSC.hg38.knownGene
+txdb = keepStandardChromosomes(txdb)
+cds_gr = cds(txdb)
+cds_gr = reduce(cds_gr)
+
+five_gr = fiveUTRsByTranscript(txdb)
+five_gr  = unlist(five_gr)
+five_gr = reduce(five_gr)
+
+three_gr = threeUTRsByTranscript(txdb)
+three_gr  = unlist(three_gr)
+three_gr = reduce(three_gr)
+sum(width(five_gr)) #[1] 10209133
+sum(width(three_gr)) #[1] 46548166
+sum(width(cds_gr)) #[1] 35803985
+
+cds_gr <- sortSeqlevels(cds_gr)
+cds_gr <- sort(cds_gr)
+
+five_gr <- sortSeqlevels(five_gr)
+five_gr <- sort(five_gr)
+
+three_gr <- sortSeqlevels(three_gr)
+three_gr <- sort(three_gr)
+
+library(rtracklayer)
+export(cds_gr, format = "BED",  con = file.path( "hg38_knownGene_cds_bed.bed"))
+export(five_gr, format = "BED",  con = file.path("hg38_knownGene_utr5_bed.bed"))
+export(three_gr, format = "BED",  con = file.path("hg38_knownGene_utr3_bed.bed"))
+```
+
+# Mutation calling 
+The following code snippet was used to call SNVs using mutect2, strelka2, MuSE
+and Varscan2
+
+##  Mutect2
+```{)
+cd  $MAINDIR/mut_calling/$SAMPLENAME/mutect2
+
+gatk Mutect2 \
+     -R $HG38FA  \
+     -L ${TARGET} \
+     -I $TUMOR \
+     -I $NORMAL \
+     -normal ${normal_name} \
+     --read-filter NotSecondaryAlignmentReadFilter \
+     --read-filter NotSupplementaryAlignmentReadFilter \
+     --af-of-alleles-not-in-resource 1e-6 \
+     -O ${SAMPLENAME}.somatic.vcf.gz
+
+gatk FilterMutectCalls  -R $HG38FA -V ${SAMPLENAME}.somatic.vcf.gz  -O filtered_${SAMPLENAME}.somatic.vcf.gz
+```
+## Strelka2
+
+```{}
+strelka_dir=$MAINDIR/mut_calling/$SAMPLENAME/strelka2
+cd ${strelka_dir}
+STRELKA_INSTALL_PATH=tools/strelka-2.9.2.centos6_x86_64
+${STRELKA_INSTALL_PATH}/bin/configureStrelkaSomaticWorkflow.py \
+    --normalBam $NORMAL \
+    --tumorBam $TUMOR \
+    --referenceFasta $HG38FA \
+    --runDir $strelka_dir \
+    --callRegions $TARGET_GZ
+$strelka_dir/runWorkflow.py -m local -j 4
+```
+## Varscan2
+
+```{}
+samtools mpileup -f $HG38FA -q 1 -B $NORMAL > ${SAMPLENAME}.normal.pileup
+samtools mpileup -f $HG38FA -q 1 -B $TUMOR > ${SAMPLENAME}.tumor.pileup
+java -jar $varscan somatic ${SAMPLENAME}.normal.pileup ${SAMPLENAME}.tumor.pileup ${SAMPLENAME} --min-coverage 8 --min-coverage-normal 8 --min-coverage-tumor 6 --min-var-freq 0.10 --min-freq-for-hom 0.75 --normal-purity 1.0 --tumor-purity 1.00 --p-value 0.99 --somatic-p-value 0.05 --strand-filter 0 --output-vcf
+```
+
+## MuSE
+```{}
+$MuSE call -O ${SAMPLENAME}  -f $HG38FA $TUMOR $NORMAL
+$MuSE sump -I ${SAMPLENAME}.MuSE.txt -G  -O ${SAMPLENAME}.vcf -D ${SNP144}
+```
+
+## Annotating mutations using annovar
+
+Each program resulted in a vcf file , which was annotated using annovar
+using the following command
+
+```{r}
+
+fls_lst = list.files()
+f2 = lapply(fls_lst, function(z){
+  message(z)
+  outputFile <- file.path(outputDataDir, paste("annovar_", basename(z), ".maf", sep=""))
+  system(paste("perl table_annovar.pl ", z,
+               " humandb_hg38/ -buildver hg38 -out ", outputFile,
+               " -remove -protocol refGene,cytoBand,esp6500siv2_all,avsnp144,avsnp150,exac03,clinvar_20190305 -operation g,r,f,f,f,f,f -nastring . -otherinfo", sep=""))
+})
+```
+
+

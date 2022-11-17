@@ -1,6 +1,7 @@
 ---
 title: "Determinants_of_function"
 output: html_document
+Author: Samantha L. Schuster
 date: "2022-11-10"
 ---
 
@@ -21,7 +22,7 @@ Import files
 
 ```{r}
 #get all barcodes used in MPRA
-MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Twist Oligo Order.csv") %>% filter(Type=="WT") %>% select("ID")
+MPRA <- read_csv("Twist Oligo Order.csv") %>% filter(Type=="WT") %>% select("ID")
 ```
 
 Calculate Conservation:
@@ -58,7 +59,7 @@ Clean motif files
 ```{r}
 ##clean up cisbp file
 #import motif file
-cisbp <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/cisbp_mutations.txt", header=FALSE)
+cisbp <- read.delim("cisbp_mutations.txt", header=FALSE)
 colnames(cisbp) <- c("Gene","MutID","CisBP_In_Mutant","CisBP_In_WT")
 cisbp[ cisbp == "[]" ] <- NA
 cisbp <- distinct(cisbp)
@@ -87,7 +88,7 @@ names(cisbp)[3] <- "CisBP_In_Mutant"
 names(cisbp)[4] <- "CisBP_In_WT"
 
 ##clean up eclip file
-eclip <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/eclip_mutations.txt", header=FALSE)
+eclip <- read.delim("eclip_mutations.txt", header=FALSE)
 colnames(eclip) <- c("Gene","MutID","eClip_In_Mutant","eClip_In_WT")
 eclip[ eclip == "[]" ] <- NA
 eclip <- distinct(eclip)
@@ -106,7 +107,7 @@ eclip[ eclip == "NA" ] <- NA
 
 
 ##clean up RBP BNS file
-RBN <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/RBN_mutations.txt", header=FALSE)
+RBN <- read.delim("RBN_mutations.txt", header=FALSE)
 colnames(RBN) <- c("Gene","MutID","RBN_In_Mutant","RBN_In_WT")
 RBN[ RBN == "[]" ] <- NA
 RBN <- distinct(RBN)
@@ -124,13 +125,13 @@ RBN <- bind_rows(RBN)
 RBN[ RBN == "NA" ] <- NA
 
 #miRNA
-mirna <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/mirna_mutations.txt", header=FALSE)
+mirna <- read.delim("mirna_mutations.txt", header=FALSE)
 colnames(mirna) <- c("Gene","MutID","miRNA_In_Mutant","miRNA_In_WT")
 mirna[ mirna == "[]" ] <- NA
 mirna <- distinct(mirna)
 
 #PAS
-pas <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/pas_mutations.txt", header=FALSE)
+pas <- read.delim("pas_mutations.txt", header=FALSE)
 colnames(pas) <- c("Gene","MutID","PAS_In_Mutant","PAS_In_WT")
 pas[ pas == "[]" ] <- NA
 pas[ pas == "['PAS ']" ] <- "PAS"
@@ -139,7 +140,7 @@ pas <- distinct(pas)
 Sort for only top expressed miRNA
 ```{r}
 #import top miRNA file
-top_mirna <- read.delim("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/Motif Analysis/Top_Expressed_miRNA.txt")
+top_mirna <- read.delim("Top_Expressed_miRNA.txt")
 
 #filter mirna df by top 100 expressed miRNA
 mirna_filter100 <- split(mirna, mirna$MutID)
@@ -311,7 +312,7 @@ write.csv(motifs_changed, "All_Motifs_Changed_top100miRNA_MPRA.csv", row.names =
 RNA structure/deltaG information:
 
 ```{r}
-deltaG <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/small_seq_on_plasmid_April_2021/rnafold/free_energy_minimum_Twist_order.txt", 
+deltaG <- read_delim("rnafold/free_energy_minimum_Twist_order.txt", 
     "\t", escape_double = FALSE, trim_ws = TRUE)
 ##clean up file 
 deltaG$merged_id <- str_sub(deltaG$merged_id, 2) #get rid of ">" character
@@ -325,8 +326,8 @@ deltaG <- deltaG %>% filter(type=="WT") %>% select(merged_id, energy)
 GC content:
 
 ```{r}
-seqs <- read.delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_31_byhand.txt", stringsAsFactors=FALSE)
-seqs_2 <- read.delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_6861.txt", stringsAsFactors=FALSE)
+seqs <- read.delim("MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_31_byhand.txt", stringsAsFactors=FALSE)
+seqs_2 <- read.delim("MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_6861.txt", stringsAsFactors=FALSE)
 
 MPRA_seqs <- full_join(seqs, seqs_2)
 MPRA_seqs <- split(MPRA_seqs, MPRA_seqs$id)
@@ -352,13 +353,13 @@ determinants <- MPRA %>%
   left_join(motifs_changed, by=c("ID"="MutID")) 
 
 #add significance in polysome MPRA
-polysome <-read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv")[,-1]
+polysome <-read_csv("All_Polysome_MPRA_results.csv")[,-1]
 sig_polysome <- polysome %>% filter(xtail_FDR_v2<0.10, Comparison!="RNA:DNA") %>% pull(barcode)
 sig_polysome <- unique(sig_polysome)
 determinants$polysome_sig <- ifelse(determinants$ID %in% sig_polysome, "Significant", "Not Significant")
 
 #add significance in IVT MPRA
-IVT <- read_csv("~/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Read_count_filtered/IVT_stats_9-19.csv")[,-1]
+IVT <- read_csv("Read_count_filtered/IVT_stats_9-19.csv")[,-1]
 sig_IVT <- IVT %>% 
   filter(hr_1_WT>=24, hr_1_Mut>=24) %>%
   filter((hr3_test<0.05&abs(hr3_log2FC)>0.3) | (hr6_test<0.05 & abs(hr6_log2FC)>0.3)) %>%

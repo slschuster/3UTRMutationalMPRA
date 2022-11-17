@@ -1,6 +1,7 @@
 ---
 title: "IVT_MPRA_Analysis"
 output: html_document
+Author: Samantha L. Schuster
 date: "2022-11-11"
 ---
 
@@ -16,11 +17,11 @@ library(broom)
 Import count files
 ```{r}
 #import count tables
-control_counts <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_Control_ids_with_counts_per_sample.txt", 
+control_counts <- read_delim("MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_Control_ids_with_counts_per_sample.txt", 
     "\t", escape_double = FALSE, trim_ws = TRUE)
-WT_counts <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_WT_ids_with_counts_per_sample.txt",
+WT_counts <- read_delim("MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_WT_ids_with_counts_per_sample.txt",
     "\t", escape_double = FALSE, trim_ws = TRUE)
-Mut_counts <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_Mutant_ids_with_counts_per_sample.txt",
+Mut_counts <- read_delim("MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_Mutant_ids_with_counts_per_sample.txt",
     "\t", escape_double = FALSE, trim_ws = TRUE)
 
 #combine to one df for all inserts
@@ -46,7 +47,7 @@ Fit all IVT data to nls curves
 ##normalization steps were done in excel
 ##spike in control was first used to normalize across samples (divide all insert count values in a sample by the read count of spike-in insert for that sample)
 ##then normalize across time points- for each insert, average values for 1hr time points, use this to normalize all other sample values for that insert such that everything is normalized decay from baseline at 1hr
-IVT_nls <- read.csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/NLS_fit/IVT_nanonorm_1hrnorm_nlsformat.csv")
+IVT_nls <- read.csv("NLS_fit/IVT_nanonorm_1hrnorm_nlsformat.csv")
 
 #fit all at same time using set starting parameters -> with y0=0.5, yf=0, alpha=0.1
 IVT_fit <- IVT_nls %>%
@@ -90,7 +91,7 @@ rm(IVT_fit_pair_Mut, IVT_fit_pair_WT)
 Statistical analysis of decay from baseline to 3hr/6hr timepoint
 ```{r}
 #import normalized count data in wide format
-IVT_normalized <- read_delim("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/IVT_filtered_NanoNorm_1hrNorm.txt", 
+IVT_normalized <- read_delim("IVT_filtered_NanoNorm_1hrNorm.txt", 
     "\t", escape_double = FALSE, trim_ws = TRUE) %>%
   left_join(IVT_counts %>% select(barcode, hr_1)) #grab total reads in hr1 across replicates from raw count file
 
@@ -135,7 +136,7 @@ paired_2$sig_IVT <- ifelse(paired_2$barcode %in% sig_IVT, "Significant", "Not Si
 Make waterfall plot:
 ```{r}
 #get motif data
-motifs <- read_csv("~/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS4_Determinants_mutation_function.csv")[,-1]
+motifs <- read_csv("TableS4_Determinants_mutation_function.csv")[,-1]
 paired_2 <- paired_2 %>% left_join(motifs %>% select("ID", "All_NA", "Gene"), by=c("barcode"="ID"))
 
 filter(paired_2, sig_IVT == "Significant") %>%

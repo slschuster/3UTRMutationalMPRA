@@ -1,3 +1,6 @@
+#Title: 3'UTR Mutation Motif Analysis
+#Author: Lukas Corey
+
 #! usr/bin/env/python3
 
 from helper import make_tri_nt_context_dic, gen_random_muts, score
@@ -10,7 +13,7 @@ current_time = now.strftime("%H:%M:%S")
 print("Current Time =", current_time)
 
 # number of simulations to run
-iters = 100
+iters = 10000
 
 print("Doing " + str(iters) + " iterations...")
 

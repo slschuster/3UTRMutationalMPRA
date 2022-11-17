@@ -1,6 +1,7 @@
 ---
-title: "Polysome_MPRA_Analysis"
+title: "Polysome_MPRA_Figures"
 output: html_document
+Author: Samantha L. Schuster
 date: "2022-11-13"
 ---
 
@@ -12,7 +13,7 @@ library(enrichR)
 
 Import MPRA xtail results
 ```{r}
-poly_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv") %>%
+poly_MPRA <- read_csv("Polysome Computational Analysis/All_Polysome_MPRA_results.csv") %>%
   select(barcode, xtail_log2FC_TE_v2, xtail_pvalue_v2, xtail_FDR_v2, Gene.refGene, Comparison) %>%
   filter(Comparison %in% c("HighPoly:RNA", "TotalPoly:RNA")) %>%
   mutate(sig_polysome = ifelse(xtail_FDR_v2<0.10, "Significant", "Not Significant"))
@@ -22,7 +23,7 @@ sig_poly <- unique(poly_MPRA %>% filter(sig_polysome == "Significant") %>% pull(
 Make waterfall plot of significant hits
 ```{r}
 #get motif data
-motifs <- read_csv("~/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS4_Determinants_mutation_function.csv")[,-1]
+motifs <- read_csv("TableS4_Determinants_mutation_function.csv")[,-1]
 poly_MPRA <- poly_MPRA %>% left_join(motifs %>% select("ID", "All_NA"), by=c("barcode"="ID"))
 
 filter(poly_MPRA, sig_polysome == "Significant", Comparison=="TotalPoly:RNA") %>%
@@ -37,7 +38,7 @@ filter(poly_MPRA, sig_polysome == "Significant", Comparison=="TotalPoly:RNA") %>
 
 GSEA
 ```{r}
-GSEA_poly <- read_csv("~/Hsieh Lab/Project- MPRA/GSEA_translation.csv") #from MSigDB
+GSEA_poly <- read_csv("GSEA_translation.csv") #from MSigDB
 GSEA_poly$Gene_Set<- factor(GSEA_poly$Gene_Set, levels=rev(GSEA_poly$Gene_Set))
 ggplot(GSEA_poly, aes(x=-log(FDR, 10), y=Gene_Set, size=Overlap,color=-log(FDR, 10))) + 
   geom_point() +

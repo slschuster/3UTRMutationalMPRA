@@ -1,3 +1,5 @@
 This github repository contains code to reproduce the analysis in our upcoming paper "Multi-level functional genomics reveals molecular and 
 cellular oncogenicity of patient-based 3’ untranslated region mutations" from the Hsieh Lab [Hsieh Lab](https://research.fredhutch.org/hsieh/en.html)
 at Fred Hutch Cancer Center.
+
+[![DOI](https://zenodo.org/badge/566554304.svg)](https://zenodo.org/badge/latestdoi/566554304)

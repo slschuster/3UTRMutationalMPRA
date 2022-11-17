@@ -1,6 +1,7 @@
 ---
 title: "RP_Comparison"
 output: html_document
+Author: Samantha L. Schuster
 date: "2022-11-14"
 ---
 
@@ -13,16 +14,16 @@ Import files
 
 ```{r}
 #mutation-patient file
-utr3_muts <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+utr3_muts <- read_csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
 
 #MPRA results
-IVT_MPRA <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Read_count_filtered/high_filters_downstream.csv")[,-1]
-poly_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv")[,-c(1,3:5,10:13)] %>%
+IVT_MPRA <- read_csv("Read_count_filtered/high_filters_downstream.csv")[,-1]
+poly_MPRA <- read_csv("All_Polysome_MPRA_results.csv")[,-c(1,3:5,10:13)] %>%
   left_join(utr3_muts %>% select(id, sampleName), by = c("barcode" = "id"))
 
 #RP
-RP_TE <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- Ribosome Profiling/TE Mutational Data_05-28-20.csv")[,-1]
-RP_Txn <- read_csv("~/Hsieh Lab/Project- Ribosome Profiling/Transcript Mutational Data_05-28-20.csv")[,-1]
+RP_TE <- read_csv("TE Mutational Data_05-28-20.csv")[,-1]
+RP_Txn <- read_csv("Transcript Mutational Data_05-28-20.csv")[,-1]
 RP_Txn$sampleName <- gsub("L","l", RP_Txn$sampleName)
 ```
 

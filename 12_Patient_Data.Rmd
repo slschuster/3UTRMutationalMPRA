@@ -1,0 +1,203 @@
+---
+title: "Patient_Data"
+output: html_document
+date: "2022-11-11"
+---
+
+Load libraries
+```{r}
+library(tidyverse)
+library(survminer)
+library(survival)
+```
+
+Set up raw patient data
+```{r patient data setup}
+#load patient outcome data (only want first 32 column)
+patient_data_raw <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- Computational/Patient-Outcomes/Raw-Data.csv")[,1:32]
+
+#subset mutational data to only UW TAN patients, keep all mutations in each patient separate rows
+combined_2_hyperremove <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+UW_muts <- filter(combined_2_hyperremove, !grepl("DTB|lucap", sampleName))
+UW_muts$sampleName <- sub("_","-",UW_muts$sampleName)
+```
+
+Set up lists of oncogenic mutations and associated patients
+```{r}
+#df with oncogene vs tumor suppressor info
+directions <- read.csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Patient Analysis/directionality.csv")
+
+#patients with top oncogenic stability mutation according to MPRA
+IVT_results <- read.csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS3_All_IVT_MPRA_results.csv")
+IVT_results <- left_join(IVT_results, directions, by=c("Gene"="Gene.refGene"))
+IVT_results <- IVT_results %>%
+  mutate(FC_direction = ifelse(hr3_log2FC>0 & hr3_test<0.05, "Up", ifelse(hr6_log2FC>0 & hr6_test<0.05, "Up",
+                               ifelse(hr3_log2FC<0 & hr3_test<0.05, "Down", ifelse(hr6_log2FC<0 & hr6_test<0.05, "Down",
+                                      "NA")))))
+onco_muts_IVT <- IVT_results %>%
+  filter(IVT_Significant == "Sig", (FC_direction=="Up"&Onc_TS %in% c("Oncogenic","Oncogene"))|(FC_direction=="Down"&Onc_TS %in% c("TS","TS?"))) %>%
+  filter((hr3_test<0.05&abs(hr3_log2FC)>0.6) | (hr6_test<0.05 & abs(hr6_log2FC)>0.6)) %>%
+  pull(barcode)
+onco_patients_IVT <- unique(filter(UW_muts, id %in% onco_muts_IVT)$sampleName)
+
+#patients with top oncogenic translation mutation according to MPRA
+poly_directionality_df <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/Patient Outcome/Patient_Outcomes_Directionality_v3.csv")
+onco_muts_poly <- filter(poly_directionality_df, Mut_Direction == "Up", !between(xtail_log2FC_TE_v2, -0.75, 0.75), Comparison %in% c("HighPoly:RNA", "TotalPoly:RNA"))$barcode
+onco_patients_poly <- unique(filter(UW_muts, id %in% onco_muts_poly)$sampleName)
+
+#patients with any top oncogenic mutation:
+onco_patients_all <- unique(c(onco_patients_IVT, onco_patients_poly))
+```
+
+Add oncogenic mutation data to raw patient data
+```{r}
+#if looking at stability mutations, use:
+onco_data <- patient_data_raw
+onco_data$Status <- onco_data$`Tissue #` %in% onco_patients_IVT
+
+#if looking at translation mutations, use:
+onco_data <- patient_data_raw
+onco_data$Status <- onco_data$`Tissue #` %in% onco_patients_poly
+
+#if looking at all mutations, use:
+onco_data <- patient_data_raw
+onco_data$Status <- onco_data$`Tissue #` %in% onco_patients_all
+```
+
+Run stats, make graphs
+```{r patient data run graphs}
+temp <- onco_data
+my_title <- "All oncogenic mutations"
+
+
+ggplot(temp, aes(x=Status, y=`survival from dx (years)`)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `survival from dx (years)` != "N/A")$`survival from dx (years)`), y=as.numeric(filter(temp, Status == "FALSE", `survival from dx (years)` != "N/A")$`survival from dx (years)`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y= "Survival from Diagnosis (years)")
+
+ggplot(temp, aes(x=Status, y=`Total Gleason`, fill = Status)) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `Total Gleason` != "N/A")$`Total Gleason`), y=as.numeric(filter(temp, Status == "FALSE", `Total Gleason` != "N/A")$`Total Gleason`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y = "Total Gleason Score at Diagnosis") +
+  theme_classic()
+
+ggplot(temp, aes(x=Status, y=as.numeric(`ADT start to Androgen Independence (yrs)`))) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `ADT start to Androgen Independence (yrs)` != "N/A")$`ADT start to Androgen Independence (yrs)`), y=as.numeric(filter(temp, Status == "FALSE", `ADT start to Androgen Independence (yrs)` != "N/A")$`ADT start to Androgen Independence (yrs)`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y= "Start of ADT to AI (years)")
+
+ggplot(temp, aes(x=Status, y=as.numeric(`Dx to Androgen Independence (yrs)`))) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `Dx to Androgen Independence (yrs)` != "N/A")$`Dx to Androgen Independence (yrs)`), y=as.numeric(filter(temp, Status == "FALSE", `Dx to Androgen Independence (yrs)` != "N/A")$`Dx to Androgen Independence (yrs)`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y= "Diagnosis to AI (years)")
+
+ggplot(temp, aes(x=Status, y=as.numeric(`First Bone Mets Age (years)`))) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `First Bone Mets Age (years)` != "N/A")$`First Bone Mets Age (years)`), y=as.numeric(filter(temp, Status == "FALSE", `First Bone Mets Age (years)` != "N/A")$`First Bone Mets Age (years)`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y = "Age of First Bone Metastasis")
+
+ggplot(temp, aes(x=Status, y=as.numeric(`surv from bone mets (years)`))) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `surv from bone mets (years)` != "N/A")$`surv from bone mets (years)`), y=as.numeric(filter(temp, Status == "FALSE", `surv from bone mets (years)` != "N/A")$`surv from bone mets (years)`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y = "Survival from Bone Metastasis (years)")
+
+ggplot(temp, aes(x=Status, y=as.numeric(`Bone Met delay from diagnosis (yrs)`))) +
+  geom_boxplot() +
+  geom_jitter() +
+  labs(caption = paste("p-value: ",t.test(x=as.numeric(filter(temp, Status == "TRUE", `Bone Met delay from diagnosis (yrs)` != "N/A")$`Bone Met delay from diagnosis (yrs)`), y=as.numeric(filter(temp, Status == "FALSE", `Bone Met delay from diagnosis (yrs)` != "N/A")$`Bone Met delay from diagnosis (yrs)`),alternative = "two.sided")$p.value)) +
+  labs(title= my_title, y= "Diagnosis to Bone Metastasis (years)")
+
+#kaplan meier:
+ggsurvplot(
+  fit = survfit(Surv(`survival from dx (years)`) ~ Status, data = temp),
+  xlab = "Years",
+  ylab = "Survival from Diagnosis",
+  palette = c("cornflowerblue", "coral2"),
+  pval = TRUE, pval.coord = c(0, 0.03), 
+  title = my_title)
+
+ggsurvplot(
+  fit = survfit(Surv(as.numeric(`First Bone Mets Age (years)`)) ~ Status, data = temp),
+  xlab = "Age (Years)",
+  ylab = "First Bone Metastasis",
+  palette = c("cornflowerblue", "coral2"),
+  pval = TRUE, 
+  title = my_title)
+
+ggsurvplot(
+  fit = survfit(Surv(as.numeric(`surv from bone mets (years)`)) ~ Status, data = temp),
+  xlab = "Years",
+  ylab = "Survival from Bone Metastasis",
+  palette = c("cornflowerblue", "coral2"),
+  pval = TRUE, 
+  title = my_title)
+
+ggsurvplot(
+  fit = survfit(Surv(as.numeric(`Bone Met delay from diagnosis (yrs)`)) ~ Status, data = temp), 
+  xlab = "Years", 
+  ylab = "Diagnosis to Bone Metastasis", 
+  palette = c("cornflowerblue", "coral2"),
+  pval = TRUE, pval.coord = c(0, 0.03), 
+  title = my_title)
+
+ggsurvplot(
+  fit = survfit(Surv(as.numeric(`Dx to Androgen Independence (yrs)`)) ~ Status, data = temp),
+  xlab = "Years",
+  ylab = "Diagnosis to AI",
+  palette = c("cornflowerblue", "coral2"),
+  pval = TRUE, pval.coord = c(0, 0.03), 
+  title = my_title)
+
+ggsurvplot(
+  fit = survfit(Surv(as.numeric(`ADT start to Androgen Independence (yrs)`)) ~ Status, data = temp),
+  xlab = "Years",
+  ylab = "ADT to AI",
+  palette = c("cornflowerblue", "coral2"),
+  pval = TRUE, pval.coord = c(0, 0.03), 
+  title = my_title)
+```
+
+Compare TMB from different patient groups:
+```{r patient data TMB}
+#TMB Data
+TMB <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/TMB_9_20_2022/TMB_utr3_9_20_2022.txt", 
+    "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  filter(!grepl("DTB|lucap", samples))
+TMB$samples <- sub("_","-",TMB$samples)
+TMB <- filter(TMB, samples %in% patient_data_raw$`Tissue #`)
+
+
+#IVT TMB
+TMB$Status <- TMB$samples %in% onco_patients_IVT
+t.test(filter(TMB, Status == TRUE)$mut_mb, filter(TMB, Status == FALSE)$mut_mb)
+ggplot(TMB, aes(x=Status, y=mut_mb)) +
+  geom_boxplot(fill = "slateblue", alpha = 0.4, outlier.shape = NA) + 
+  labs(x="Oncogenic Mutation", y="Mut/Mb", title = "IVT Onco Patients Mutational Burden") + 
+  geom_jitter(alpha = 0.4) + 
+  labs(caption = paste("p=", t.test(filter(TMB, Status == TRUE)$mut_mb, filter(TMB, Status == FALSE)$mut_mb)$p.value))
+
+#Translation TMB
+TMB$Status <- TMB$samples %in% onco_patients_poly
+t.test(filter(TMB, Status == TRUE)$mut_mb, filter(TMB, Status == FALSE)$mut_mb)
+ggplot(TMB, aes(x=Status, y=mut_mb)) +
+  geom_boxplot(fill = "slateblue", alpha = 0.4, outlier.shape = NA) + 
+  labs(x="Oncogenic Mutation", y="Mut/Mb", title = "Translation Onco Patients Mutational Burden") + 
+  geom_jitter(alpha = 0.4) + 
+  labs(caption = paste("p=", t.test(filter(TMB, Status == TRUE)$mut_mb, filter(TMB, Status == FALSE)$mut_mb)$p.value))
+
+
+#IVT + Translation TMB
+TMB$Status <- TMB$samples %in% onco_patients_all
+t.test(filter(TMB, Status == TRUE)$mut_mb, filter(TMB, Status == FALSE)$mut_mb)
+ggplot(TMB, aes(x=Status, y=mut_mb)) +
+  geom_boxplot(fill = "slateblue", alpha = 0.4, outlier.shape = NA) + 
+  labs(x="Oncogenic Mutation", y="Mut/Mb", title = "IVT+Translation Onco Patients Mutational Burden") + 
+  geom_jitter(alpha = 0.4) + 
+  labs(caption = paste("p=", t.test(filter(TMB, Status == TRUE)$mut_mb, filter(TMB, Status == FALSE)$mut_mb)$p.value))
+```

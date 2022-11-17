@@ -1,0 +1,121 @@
+---
+title: "Hotspot_mutations"
+output: html_document
+date: "2022-11-14"
+---
+
+
+```{r}
+library(tidyverse)
+library(hrbrthemes)
+```
+
+```{r import}
+utr3_muts <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv") %>%
+  select(Chr, Start, Gene.refGene, sampleName, id)
+
+utr3_combined <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/Master_3UTR_Mutations_Hyperremoved_2+.csv")
+```
+
+Find mutations near each other (within 50bp)
+
+```{r}
+utr3_genes <- split(utr3_muts, utr3_muts$Gene.refGene)
+
+pairs <- data.frame(matrix(ncol = 4, nrow = 0))
+x <- c("Gene", "Loc1", "Loc2", "Dist")
+colnames(pairs) <- x
+
+for(gene in utr3_genes){
+  chr <- unique(gene$Chr)
+  if (length(unique(gene$Start))>1){
+    locs <- unique(gene$Start)
+    for(i in (1:(length(locs)-1))){
+      for(j in (i+1):length(locs)){
+        if(abs(locs[j]-locs[i])<50){
+          pair <- c(unique(gene$Gene.refGene),paste0(chr, ":",locs[i]),paste0(chr, ":",locs[j]), abs(locs[j]-locs[i]))
+          pairs[nrow(pairs)+ 1, ] <- pair}
+    }
+  }
+  
+  }}
+
+pairs$Dist <- as.numeric(pairs$Dist)
+```
+
+Distribution of hotspot distances
+
+```{r}
+pairs <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/Hotspots/Hotspot mutations.csv")
+
+ggplot(pairs, aes(x=Dist)) + 
+  geom_histogram(binwidth= 5, fill="#86608e", color="#e9ecef", alpha=0.9) + 
+  theme_minimal() + 
+  labs(x="Distance between Mutations", y="Count", title = "Hotspot mutation distance")
+```
+
+Compare to MPRA sig mutations
+
+```{r}
+#MPRA results
+IVT_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Read_count_filtered/high_filters_downstream.csv")[,-1]
+poly_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv")[,-c(1,3:5,10:13)]
+
+IVT_sig <- IVT_MPRA %>% filter(sig_E == "Sig") %>% pull(barcode)
+MPRA_sig <- unique(poly_MPRA %>% filter(xtail_FDR_v2<0.1, Comparison %in% c("HighPoly:RNA","TotalPoly:RNA")) %>% pull(barcode))
+
+IVT_sig <- substring(IVT_sig, 1, nchar(IVT_sig)-4)
+MPRA_sig <- substring(MPRA_sig, 1, nchar(MPRA_sig)-4)
+
+recurrent <- utr3_combined %>% filter(patient_no>1) %>% pull(id)
+recurrent <- substring(recurrent, 1, nchar(recurrent)-4)
+
+hotspots <- unique(c(pairs$Loc1, pairs$Loc2, recurrent))
+
+intersect(IVT_sig, hotspots)
+intersect(MPRA_sig, hotspots)
+```
+
+Make lollipop plots
+
+```{r}
+sig_hot <- read_csv("~/Hsieh Lab/Project- hg38/Final Analysis (High)/Hotspots/Significant_hotspots.csv")
+
+temp <- sig_hot %>% filter(Gene == "RFX3")
+tstart <- temp$start[1]
+tend <- temp$end[1]
+RFX3_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
+  geom_segment(aes(x=position, xend=position, y=0, yend=patient_no), color = "grey") +
+  geom_point(color = "slateblue", size = 4) + 
+  theme_minimal() +
+  coord_cartesian(xlim=c(tstart+2000, tend-4000)) + 
+  labs(x="Chromosomal position", y="# patients", title = "RFX3 Hotspot")
+
+temp <- sig_hot %>% filter(Gene == "FCGR2A")
+tstart <- temp$start[1]
+tend <- temp$end[1]
+FCGR2A_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
+  geom_segment(aes(x=position, xend=position, y=0, yend=patient_no), color = "grey") +
+  geom_point(color = "slateblue", size = 4) + 
+  theme_minimal() +
+  coord_cartesian(xlim=c(tstart+2000, tend-4000)) + 
+  labs(x="Chromosomal position", y="# patients", title = "FCGR2A Hotspot")
+
+temp <- sig_hot %>% filter(Gene == "E2F8")
+tstart <- temp$start[1]
+tend <- temp$end[1]
+E2F8_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
+  geom_segment(aes(x=position, xend=position, y=0, yend=patient_no), color = "grey") +
+  geom_point(color = "slateblue", size = 4) + 
+  theme_minimal() +
+  coord_cartesian(xlim=c(tstart+2000, tend-4000)) + 
+  labs(x="Chromosomal position", y="# patients", title = "E2F8 Hotspot")
+
+RFX3_lolli
+#ggsave("RFX3_lollipop.pdf")
+FCGR2A_lolli
+#ggsave("FCGR2A_lollipop.pdf") #use
+E2F8_lolli
+#ggsave("E2F8_lollipop.pdf")
+```
+

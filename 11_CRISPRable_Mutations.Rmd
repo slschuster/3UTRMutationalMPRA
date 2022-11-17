@@ -1,0 +1,182 @@
+---
+title: "CRISPRable_Mutations"
+output: html_document
+date: "2022-11-11"
+---
+
+
+```{r}
+library(tidyverse)
+library(Biostrings)
+```
+
+```{r}
+seqs <- read.delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_6861.txt", stringsAsFactors=FALSE)
+```
+
+
+
+Include looking for alternative PAMs
+-PAM sites: NGG, NG, NGAN (VQR), NGCG (VRER), NNGRRT(Sa), NNNRRT (SaKKH)
+-choose the best PAM site with lowest off-targets in window, prioritizing NGG PAM sites
+
+full code of filtering, using all PAM types
+```{r All}
+crispr <- split(seqs, seqs$id)
+crispr = lapply(crispr, function(s){
+  #make reverse complement column
+  seq <- DNAString(s$ref_Sequence)
+  rev_comp <- reverseComplement(seq)
+  rev_comp <- as.character(rev_comp)
+  s$rev_comp <- rev_comp
+  
+  #check if mutation is C->T or A->G on (+) or (-) strand of mRNA sequence, or not possible at all
+  if(s$strand == "+" && s$Ref == "C" && s$Alt == "T" ){
+    mut_strand <- "(+)"
+  } else if(s$strand == "+" && s$Ref == "A" && s$Alt == "G" ){
+    mut_strand <- "(+)"
+  } else if(s$strand == "-" && s$changed_ref == "C" && s$changed_alt == "T" ){
+    mut_strand <- "(+)"
+  } else if(s$strand == "-" && s$changed_ref == "A" && s$changed_alt == "G" ){
+    mut_strand <- "(+)"
+  } else if(s$strand == "+" && s$Ref == "G" && s$Alt == "A" ){
+    mut_strand <- "(-)"
+  } else if(s$strand == "+" && s$Ref == "T" && s$Alt == "C" ){
+    mut_strand <- "(-)"
+  } else if(s$strand == "-" && s$changed_ref == "G" && s$changed_alt == "A" ){
+    mut_strand <- "(-)"
+  } else if(s$strand == "-" && s$changed_ref == "T" && s$changed_alt == "C" ){
+    mut_strand <- "(-)"
+  }
+  else{mut_strand <- NA}
+  s$mut_strand <- mut_strand
+  
+  s
+})
+crispr <- bind_rows(crispr)
+
+#filter out ones without C->T or A->G
+crispr <- rbind(filter(crispr, mut_strand == "(+)"), filter(crispr, mut_strand == "(-)"))
+
+#next steps: find 40bp sequence around mutation on correct strand, find PAM sites
+crispr <- split(crispr, crispr$id)
+crispr = lapply(crispr, function(s){
+  #extract 40 bp around mutation, using either (+) or (-) mRNA sequence depending on mut_strand
+  if(s$mut_strand == "(+)"){
+    around40 <- substr(s$ref_Sequence, 81, 121)
+  } else if(s$mut_strand == "(-)"){
+    around40 <- substr(s$rev_comp, 81, 121)
+  }
+  s$around40 <- around40
+  
+  #find PAM sites using around40, which is already from correct strand
+  ##all PAMs: NGG, NG, NGAN (VQR), NGCG (VRER), NNGRRT(Sa), NNNRRT (SaKKH)
+  PAMs <- unlist(gregexpr("(?=[ACTG]GG)|(?=[ACTG]G)|(?=[ACTG]GA[ACTG])|(?=[ACTG]GCG)|(?=[ACTG][ACTG]G[AG][AG]T)|(?=[ACTG][ACTG][ACTG][AG][AG]T)", s$around40, perl=TRUE))
+  PAMs <- paste(PAMs, sep='', collapse= ', ')
+  s$PAMs <- PAMs #put list of PAMs into a new column
+  
+  s})
+crispr <- bind_rows(crispr)
+
+#filter by PAM in correct place (PAM needs to be 13-18 bp down from mutation -> if mutation = 21, then PAM needs to be at 34-39
+crispr <- filter(crispr, grepl("34|35|36|37|38|39", PAMs))
+
+#add window, off-target count, & sgRNA sequence
+##check off-target count for each possible PAM and choose the one that has fewest off-targets
+crispr<- split(crispr, crispr$id)
+crispr = lapply(crispr, function(s){
+  correct_PAMs <- as.numeric(unlist((str_extract_all(s$PAMs, "34|35|36|37|38|39")))) #list of all PAMs that put mutation in editing window
+  
+  windows <- NULL
+  off_targets <- NULL
+  sgRNAs <- NULL
+  PAM_seqs <- NULL
+  PAM_types <- NULL
+  
+  for(PAM in correct_PAMs){
+    window_i <- substr(s$around40, PAM-18, PAM-13) #find editing window
+    
+    if(s$strand == "+" && s$Ref == "C"){
+      off_targets_i <- str_count(window_i, pattern= "C")-1
+  } else if(s$strand == "+" && s$Ref == "A"){
+      off_targets_i <- str_count(window_i, pattern= "A")-1
+  } else if(s$strand == "-" && s$changed_ref == "C"){
+      off_targets_i <- str_count(window_i, pattern= "C")-1
+  } else if(s$strand == "-" && s$changed_ref == "A"){
+      off_targets_i <- str_count(window_i, pattern= "A")-1
+  } else if(s$strand == "+" && s$Ref == "G"){
+      off_targets_i <- str_count(window_i, pattern= "C")-1
+  } else if(s$strand == "+" && s$Ref == "T"){
+      off_targets_i <- str_count(window_i, pattern= "A")-1
+  } else if(s$strand == "-" && s$changed_ref == "G"){
+      off_targets_i <- str_count(window_i, pattern= "C")-1
+  } else if(s$strand == "-" && s$changed_ref == "T"){
+      off_targets_i <- str_count(window_i, pattern= "A")-1}
+    
+    sgRNA_i <- substr(s$around40, PAM-20, PAM-1) #find sgRNA sequence
+    
+    PAM_seq_i <- substr(s$around40, PAM, PAM+5) #find PAM sequence
+    
+     #find PAM type:
+     if(grepl("^[ACTG]GG", PAM_seq_i)){
+       PAM_type_i <- "NGG"
+       PAM_seq_i <- substr(PAM_seq_i, 1, 3)
+   } else if(grepl("^[ACTG]GA[ACTG]", PAM_seq_i)){
+       PAM_type_i <- "VQR (NGAN)"
+       PAM_seq_i <- substr(PAM_seq_i, 1, 4) 
+   } else if(grepl("^[ACTG]GCG", PAM_seq_i)){
+       PAM_type_i <- "VRER (NGCG)"
+       PAM_seq_i <- substr(PAM_seq_i, 1, 4)
+   } else if(grepl("^[ACTG][ACTG]G[AG][AG]T", PAM_seq_i)){
+       PAM_type_i <- "Sa (NNGRRT)"
+   } else if(grepl("^[ACTG][ACTG][ACTG][AG][AG]T", PAM_seq_i)){
+       PAM_type_i <- "SaKKH (NNNRRT)"
+   } else if(grepl("^[ACTG]G", PAM_seq_i)){
+       PAM_type_i <- "NGN"
+       PAM_seq_i <- substr(PAM_seq_i, 1, 3)
+   } else{PAM_type_i <- "?"}
+      
+    
+    sgRNAs <- c(sgRNAs, sgRNA_i)
+    windows <- c(windows, window_i)
+    off_targets <- c(off_targets, off_targets_i)
+    PAM_seqs<- c(PAM_seqs, PAM_seq_i)
+    PAM_types <- c(PAM_types, PAM_type_i)
+    }
+  
+  #choose PAM to use with lowest off-targets, prioritizing NGG PAMs
+  lowest_off <- min(off_targets)
+  PAM_indices <- which(off_targets == lowest_off)
+  for(i in PAM_indices){
+    if(PAM_types[i]=="NGG"){
+      PAM_index <- i}}
+  if(exists("PAM_index") == FALSE){
+    PAM_index <- PAM_indices[1]}
+  
+  sgRNA_use <- sgRNAs[PAM_index]
+  window_use <- windows[PAM_index]
+  off_targets_use <- off_targets[PAM_index]
+  PAM_seq_use <- PAM_seqs[PAM_index]
+  PAM_type_use <- PAM_types[PAM_index]
+  
+  s$all_PAM_types = paste(PAM_types, sep='', collapse=', ')
+  s$all_PAM_seqs = paste(PAM_seqs, sep='', collapse=', ')
+  s$all_windows = paste(windows, sep='', collapse=', ')
+  s$all_off_targets = paste(off_targets, sep='', collapse=', ')
+  s$all_sgRNA = paste(sgRNAs, sep='', collapse=', ')
+  
+  s$best_window <- window_use
+  s$best_off_targets <- off_targets_use
+  s$best_sgRNA <- sgRNA_use
+  s$best_PAM_seq <- PAM_seq_use
+  s$best_PAM_type <-PAM_type_use
+  
+  s})
+crispr <- bind_rows(crispr)
+```
+
+Write files
+
+```{r Write}
+write.csv(crispr, file = "CRISPRable_Muts.csv")
+```

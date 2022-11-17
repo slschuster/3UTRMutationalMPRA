@@ -1,0 +1,166 @@
+---
+title: "IVT_MPRA_Analysis"
+output: html_document
+date: "2022-11-11"
+---
+
+libraries
+```{r}
+library(tidyverse)
+library(hrbrthemes)
+library(nlstools)
+library(enrichR)
+library(broom)
+```
+
+Import count files
+```{r}
+#import count tables
+control_counts <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_Control_ids_with_counts_per_sample.txt", 
+    "\t", escape_double = FALSE, trim_ws = TRUE)
+WT_counts <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_WT_ids_with_counts_per_sample.txt",
+    "\t", escape_double = FALSE, trim_ws = TRUE)
+Mut_counts <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/IVT_librray_April2022_v2/count_files/v2_strict_150M_Mutant_ids_with_counts_per_sample.txt",
+    "\t", escape_double = FALSE, trim_ws = TRUE)
+
+#combine to one df for all inserts
+IVT_counts <- rbind(control_counts[,c(1,26:55)], WT_counts[,c(1,26:55)], Mut_counts[,c(1,26:55)])
+
+
+#sum across all samples for each insert
+Total <- rowSums(IVT_counts[2:31])
+hr_1 <- rowSums(IVT_counts[8:13])
+hr_3 <- rowSums(IVT_counts[20:25])
+hr_6 <- rowSums(IVT_counts[26:31])
+hr_12 <- rowSums(IVT_counts[2:7])
+hr_24 <- rowSums(IVT_counts[14:19])
+IVT_counts<- cbind(IVT_counts[,1:31], hr_1, hr_3, hr_6, hr_12, hr_24, Total)
+
+rm(control_counts, WT_counts, Mut_counts)
+rm(hr_1, hr_12, hr_24, hr_3, hr_6, Total)
+```
+
+Fit all IVT data to nls curves
+```{r}
+#import normalized count file in long format
+##normalization steps were done in excel
+##spike in control was first used to normalize across samples (divide all insert count values in a sample by the read count of spike-in insert for that sample)
+##then normalize across time points- for each insert, average values for 1hr time points, use this to normalize all other sample values for that insert such that everything is normalized decay from baseline at 1hr
+IVT_nls <- read.csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/NLS_fit/IVT_nanonorm_1hrnorm_nlsformat.csv")
+
+#fit all at same time using set starting parameters -> with y0=0.5, yf=0, alpha=0.1
+IVT_fit <- IVT_nls %>%
+  nest(-barcode) %>%
+  mutate(
+    fit = map(data, ~nls(y ~ yf + (y0 - yf) * exp(-alpha * t), data = ., start = list(y0 = 0.5, yf = 0, alpha = 0.1))),
+    tidied = map(fit, tidy),
+    augmented = map(fit, augment)
+  )
+
+#make table of alpha/half-life for each insert
+IVT_fit_tidy <- IVT_fit %>%
+  unnest(tidied) %>%
+  select(barcode, term, estimate, std.error, p.value) %>%
+  filter(term=="alpha") %>%
+  mutate(half_life = log(2)/estimate)
+```
+
+Pair nls data by WT/Mut
+```{r}
+#filter out controls
+IVT_fit_pair <- filter(IVT_fit_tidy, !grepl("Control", IVT_fit_tidy$barcode))
+
+#make each line have alpha/half-life & FC for both WT & Mut
+IVT_fit_pair <- IVT_fit_pair %>%
+  mutate(Type = ifelse(grepl("WT", barcode), "WT", "Mutant")) %>%
+  mutate(barcode = ifelse(Type == "WT", substr(barcode, 1, nchar(barcode)-3), substr(barcode, 1, nchar(barcode)-7)))
+IVT_fit_pair_WT <- filter(IVT_fit_pair, Type == "WT")
+IVT_fit_pair_Mut <- filter(IVT_fit_pair, Type == "Mutant")
+IVT_fit_pair <- IVT_fit_pair_WT %>%
+  rename(alpha_WT = estimate, half_life_WT = half_life) %>%
+  left_join(IVT_fit_pair_Mut, by = "barcode") %>%
+  rename(alpha_Mut = estimate, half_life_Mut = half_life) %>%
+  select(-c(term.x, term.y, Type.x, Type.y,std.error.x, std.error.y, p.value.x, p.value.y)) %>%
+  mutate(FC_alpha = alpha_Mut/alpha_WT, 
+         FC_half_life = half_life_Mut/half_life_WT,
+         log2FC_half_life = log2(FC_half_life))
+rm(IVT_fit_pair_Mut, IVT_fit_pair_WT)
+```
+
+Statistical analysis of decay from baseline to 3hr/6hr timepoint
+```{r}
+#import normalized count data in wide format
+IVT_normalized <- read_delim("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/IVT_filtered_NanoNorm_1hrNorm.txt", 
+    "\t", escape_double = FALSE, trim_ws = TRUE) %>%
+  left_join(IVT_counts %>% select(barcode, hr_1)) #grab total reads in hr1 across replicates from raw count file
+
+#pair normalized count data by WT/Mut
+paired <- IVT_normalized %>%
+  filter(!grepl("Control", barcode)) %>%
+  mutate(Type = ifelse(grepl("WT", barcode), "WT", "Mutant")) %>%
+  mutate(barcode = ifelse(Type == "WT", substr(barcode, 1, nchar(barcode)-3), substr(barcode, 1, nchar(barcode)-7)))
+paired_WT <- filter(paired, Type == "WT")
+paired_Mut <- filter(paired, Type == "Mutant")
+paired <- inner_join(paired_WT, paired_Mut, by = "barcode", suffix = c("_WT", "_Mut")) %>%
+  left_join(IVT_fit_pair %>% select(barcode, log2FC_half_life))
+rm(paired_WT, paired_Mut)
+
+#do hr3/6 stats
+paired$hr3_WTavg <- apply(paired[,8:13],1,mean)
+paired$hr3_Mutavg <- apply(paired[,40:45],1,mean)
+paired$hr6_WTavg <- apply(paired[,14:19],1,mean)
+paired$hr6_Mutavg <- apply(paired[,46:51],1,mean)
+paired <- paired%>% 
+  mutate(hr3_log2FC = log2(hr3_Mutavg/hr3_WTavg), 
+         hr6_log2FC = log2(hr6_Mutavg/hr6_WTavg))
+
+paired$hr3_test <- unlist(sapply(1:nrow(paired), function(i) t.test(as.numeric(as.character(unlist(paired[i,8:13]))), as.numeric(as.character(unlist(paired[i,40:45]))))[c("p.value")])) %>% unname()
+paired$hr6_test <- unlist(sapply(1:nrow(paired), function(i) t.test(as.numeric(as.character(unlist(paired[i,14:19]))), as.numeric(as.character(unlist(paired[i,46:51]))))[c("p.value")])) %>% unname()
+
+
+#simplified df (take out count data)
+paired_2 <- paired %>% select(barcode, hr_1_WT, hr_1_Mut, log2FC_half_life, hr3_log2FC, hr6_log2FC, hr3_test, hr6_test)
+```
+
+Filter hits:
+```{r}
+sig_IVT <- paired_2 %>% 
+  filter(hr_1_WT>=24, hr_1_Mut>=24) %>% #read count filter
+  filter((hr3_test<0.05&abs(hr3_log2FC)>0.3) | (hr6_test<0.05 & abs(hr6_log2FC)>0.3)) %>% #p<0.05
+  filter(abs(log2FC_half_life)>0.2) %>%
+  pull(barcode)
+paired_2$sig_IVT <- ifelse(paired_2$barcode %in% sig_IVT, "Significant", "Not Significant")
+```
+
+Make waterfall plot:
+```{r}
+#get motif data
+motifs <- read_csv("~/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS4_Determinants_mutation_function.csv")[,-1]
+paired_2 <- paired_2 %>% left_join(motifs %>% select("ID", "All_NA", "Gene"), by=c("barcode"="ID"))
+
+filter(paired_2, sig_IVT == "Significant") %>%
+  mutate(barcode = fct_reorder(barcode, log2FC_half_life)) %>%
+  ggplot(aes(x=barcode, y=log2FC_half_life, fill = All_NA)) +
+  geom_bar(stat = "identity", alpha=0.6) +
+  theme_classic() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(title = "Waterfall- Sig w/ Motif", y="log2FC half life") +  
+  scale_fill_manual(values = c("TRUE" = "#C2C2C2","FALSE"="#8E44AD"))
+```
+
+GSEA:
+```{r}
+gsea_MPRA <- as.data.frame(enrichr(filter(paired_2, sig_IVT == "Significant")$Gene, databases = "BioPlanet_2019")) 
+gsea_MPRA <- gsea_MPRA %>%
+  rename(Gene_set = BioPlanet_2019.Term, FDR = BioPlanet_2019.Adjusted.P.value) %>%
+  mutate(overlap = as.numeric(sub("\\/.*", "", BioPlanet_2019.Overlap)))
+gsea_MPRA$Gene_set<- factor(gsea_MPRA$Gene_set, levels=rev(gsea_MPRA$Gene_set))
+
+ggplot(gsea_MPRA[1:5,], aes(x=-log(FDR, 10), y=Gene_set, color=-log(FDR, 10), size = overlap)) + 
+  geom_point() +
+  scale_size_area(max_size = 5) +
+  scale_colour_gradient(low="blue",high="orange") + 
+  labs(y= "", x="-log10(FDR)") + 
+  geom_vline(xintercept=-log(0.05,10), linetype = "dashed")
+```
+

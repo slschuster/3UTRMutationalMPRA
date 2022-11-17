@@ -1,0 +1,371 @@
+---
+title: "Determinants_of_function"
+output: html_document
+date: "2022-11-10"
+---
+
+Libraries
+
+```{r}
+library(GenomicScores)
+library(phastCons100way.UCSC.hg38)
+library(VariantAnnotation)
+library(TxDb.Hsapiens.UCSC.hg38.knownGene)
+
+library(plyr)
+library(tidyverse)
+library(qdapRegex)
+```
+
+Import files
+
+```{r}
+#get all barcodes used in MPRA
+MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Twist Oligo Order.csv") %>% filter(Type=="WT") %>% select("ID")
+```
+
+Calculate Conservation:
+
+```{r}
+phast <- phastCons100way.UCSC.hg38
+
+#separate ID into chr, start, end
+MPRA <- MPRA %>%
+  mutate(Chr = sub(":.*", "", ID),
+         Start = str_match(ID, ":\\s*(.*?)\\s*_")[,2], 
+         End = Start)
+
+#make a GRanges object from the mutation dataframe
+conserv <- makeGRangesFromDataFrame(MPRA,
+                         keep.extra.columns=TRUE,
+                         ignore.strand=FALSE,
+                         seqinfo=NULL,
+                         seqnames.field="Chr",
+                         start.field="Start",
+                         end.field="End",
+                         starts.in.df.are.0based=FALSE)
+
+#add a column to the GRanges object with conservation scores
+conserv$PHASTCONS <- score(phast, conserv)
+
+#make master mutation file with conservation score columns
+MPRA$PHASTCONS <- conserv$PHASTCONS
+```
+
+Put together motif information:
+
+Clean motif files
+```{r}
+##clean up cisbp file
+#import motif file
+cisbp <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/cisbp_mutations.txt", header=FALSE)
+colnames(cisbp) <- c("Gene","MutID","CisBP_In_Mutant","CisBP_In_WT")
+cisbp[ cisbp == "[]" ] <- NA
+cisbp <- distinct(cisbp)
+#find motifID
+cisbp$CisBP_In_Mutant <- ex_between(cisbp$CisBP_In_Mutant, "M","0.6", include.markers = TRUE)
+cisbp$CisBP_In_WT <- ex_between(cisbp$CisBP_In_WT, "M","0.6", include.markers = TRUE)
+#find dictionary between motifIDs and RBP names
+cisbp_dict <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/RBPs/CisBP-RNA/CisBP-RNA DB Download- RBP_Information.txt")
+cisbp_dict <- cisbp_dict[cisbp_dict$Motif_ID != ".", ] #pare down to used motifIDs
+cisbp_dict <- filter(cisbp_dict, RBP_Status == "D")
+#go through cisbp and change MotifIDs to RBP names
+cisbp <- split(cisbp, cisbp$MutID)
+cisbp <- lapply(cisbp, function(s){
+  mut <- unlist(s$CisBP_In_Mutant) #make into vector of characters (M###_0.6)
+  mut <- mapvalues(mut, from = cisbp_dict$Motif_ID, to = cisbp_dict$RBP_Name) #map from MotifID to RBP Name
+  s$new_mut <- paste(mut, collapse = ", ")
+  wt <- unlist(s$CisBP_In_WT)
+  wt <- mapvalues(wt, from = cisbp_dict$Motif_ID, to = cisbp_dict$RBP_Name)
+  s$new_wt <- paste(wt, collapse = ", ")
+  s
+})
+cisbp <- bind_rows(cisbp)
+cisbp[cisbp == "NA"] <- NA
+cisbp <- subset(cisbp, select= -c(CisBP_In_Mutant, CisBP_In_WT))
+names(cisbp)[3] <- "CisBP_In_Mutant"
+names(cisbp)[4] <- "CisBP_In_WT"
+
+##clean up eclip file
+eclip <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/eclip_mutations.txt", header=FALSE)
+colnames(eclip) <- c("Gene","MutID","eClip_In_Mutant","eClip_In_WT")
+eclip[ eclip == "[]" ] <- NA
+eclip <- distinct(eclip)
+eclip$eClip_In_Mutant <- ex_between(eclip$eClip_In_Mutant, "/",".top")
+eclip$eClip_In_WT <- ex_between(eclip$eClip_In_WT, "/",".top")
+eclip <- split(eclip, eclip$MutID)
+eclip <- lapply(eclip, function(s){
+  mut <- unique(unlist(s$eClip_In_Mutant))
+  s$eClip_In_Mutant <- paste(mut, collapse= ", ")
+  wt <- unique(unlist(s$eClip_In_WT))
+  s$eClip_In_WT <- paste(wt, collapse = ", ")
+  s
+})
+eclip <- bind_rows(eclip)
+eclip[ eclip == "NA" ] <- NA
+
+
+##clean up RBP BNS file
+RBN <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/RBN_mutations.txt", header=FALSE)
+colnames(RBN) <- c("Gene","MutID","RBN_In_Mutant","RBN_In_WT")
+RBN[ RBN == "[]" ] <- NA
+RBN <- distinct(RBN)
+RBN <- split(RBN, RBN$MutID)
+RBN <- lapply(RBN, function(s){
+  mut <- unlist(strsplit(s$RBN_In_Mut, ", "))
+  mut <- ex_between(mut, "'", "_5mer")
+  s$RBN_In_Mutant <- paste(mut, collapse= ", ")
+  wt <- unlist(strsplit(s$RBN_In_WT, ", "))
+  wt <- ex_between(wt, "'", "_5mer")
+  s$RBN_In_WT <- paste(wt, collapse = ", ")
+  s
+})
+RBN <- bind_rows(RBN)
+RBN[ RBN == "NA" ] <- NA
+
+#miRNA
+mirna <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/mirna_mutations.txt", header=FALSE)
+colnames(mirna) <- c("Gene","MutID","miRNA_In_Mutant","miRNA_In_WT")
+mirna[ mirna == "[]" ] <- NA
+mirna <- distinct(mirna)
+
+#PAS
+pas <- read.delim("~/Hsieh Lab/Project- Computational/3'UTR Motif Mutation Analysis/Feb 2021 Lukas Results/pas_mutations.txt", header=FALSE)
+colnames(pas) <- c("Gene","MutID","PAS_In_Mutant","PAS_In_WT")
+pas[ pas == "[]" ] <- NA
+pas[ pas == "['PAS ']" ] <- "PAS"
+pas <- distinct(pas)
+```
+Sort for only top expressed miRNA
+```{r}
+#import top miRNA file
+top_mirna <- read.delim("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/Motif Analysis/Top_Expressed_miRNA.txt")
+
+#filter mirna df by top 100 expressed miRNA
+mirna_filter100 <- split(mirna, mirna$MutID)
+mirna_filter100 <- lapply(mirna_filter100, function(s){
+  #get clean vector of miRNAs to compare with top50 
+  mut <- unlist(str_split(s$miRNA_In_Mutant,", "))
+  mut <- str_remove_all(mut, "\\[")
+  mut <- str_remove_all(mut, "\\]")
+  mut <- str_remove_all(mut, "\\'")
+  mut <- str_remove_all(mut, "hsa-")
+  mut <- str_remove_all(mut, "-3p")
+  mut <- str_remove_all(mut, "-5p")
+  #only keep value if one of top 100 expressed miRNAs is there
+  if(any(top_mirna$Top.100 %in% mut)){
+  mut <- mut} else{mut <-NA}
+  
+  s$miRNA_In_Mutant <- paste(mut, collapse = ", ")
+  
+  wt <- unlist(str_split(s$miRNA_In_WT,", "))
+  wt <- str_remove_all(wt, "\\[")
+  wt <- str_remove_all(wt, "\\]")
+  wt <- str_remove_all(wt, "\\'")
+  wt <- str_remove_all(wt, "hsa-")
+  wt <- str_remove_all(wt, "-3p")
+  wt <- str_remove_all(wt, "-5p")
+  if(any(top_mirna$Top.100 %in% wt)){
+  wt <- wt} else{wt <-NA}
+  
+  s$miRNA_In_WT <- paste(wt, collapse = ", ")
+  
+  s
+})
+mirna_filter100 <- bind_rows(mirna_filter100)
+mirna_filter100[ mirna_filter100 == "NA" ] <- NA
+
+```
+Find changed motifs, not all motifs
+```{r}
+#in each dataset, make new columns showing motifs added or removed by Mut
+##RBN
+RBN_changed <- split(RBN, RBN$MutID)
+RBN_changed <- lapply(RBN_changed, function(s){
+  wt <- unlist(strsplit(s$RBN_In_WT, ", "))
+  mut <- unlist(strsplit(s$RBN_In_Mutant, ", "))
+  added <- c()
+  removed <- c()
+  unchanged <- c()
+  for(x in wt){
+    if(x %in% mut){unchanged <- append(unchanged, x)}
+    else if(!(x %in% mut)){removed <- append(removed, x)}}
+  for(y in mut){
+    if(!(y %in% wt)){added <- append(added, y)}}
+  s$RBN_Added <- paste(unique(added), collapse = ", ")
+  s$RBN_Removed <- paste(unique(removed), collapse = ", ")
+  s$RBN_Unchanged <- paste(unique(unchanged), collapse = ", ")
+  s
+})
+RBN_changed <- bind_rows(RBN_changed)
+RBN_changed[RBN_changed == ""] <- NA
+RBN_changed[RBN_changed == "NA"] <- NA
+RBN_changed <- RBN_changed[, c(1,2,5,6,7)]
+
+##eclip
+eclip_changed <- split(eclip, eclip$MutID)
+eclip_changed <- lapply(eclip_changed, function(s){
+  wt <- unlist(strsplit(s$eClip_In_WT, ", "))
+  mut <- unlist(strsplit(s$eClip_In_Mutant, ", "))
+  added <- c()
+  removed <- c()
+  unchanged <- c()
+  for(x in wt){
+    if(x %in% mut){unchanged <- append(unchanged, x)}
+    else if(!(x %in% mut)){removed <- append(removed, x)}}
+  for(y in mut){
+    if(!(y %in% wt)){added <- append(added, y)}}
+  s$eClip_Added <- paste(unique(added), collapse = ", ")
+  s$eClip_Removed <- paste(unique(removed), collapse = ", ")
+  s$eClip_Unchanged <- paste(unique(unchanged), collapse = ", ")
+  s
+})
+eclip_changed <- bind_rows(eclip_changed)
+eclip_changed[eclip_changed == ""] <- NA
+eclip_changed[eclip_changed == "NA"] <- NA
+eclip_changed <- eclip_changed[, c(1,2,5,6,7)]
+
+##cisbp
+cisbp_changed <- split(cisbp, cisbp$MutID)
+cisbp_changed <- lapply(cisbp_changed, function(s){
+  wt <- unlist(strsplit(s$CisBP_In_WT, ", "))
+  mut <- unlist(strsplit(s$CisBP_In_Mutant, ", "))
+  added <- c()
+  removed <- c()
+  unchanged <- c()
+  for(x in wt){
+    if(x %in% mut){unchanged <- append(unchanged, x)}
+    else if(!(x %in% mut)){removed <- append(removed, x)}}
+  for(y in mut){
+    if(!(y %in% wt)){added <- append(added, y)}}
+  s$CisBP_Added <- paste(unique(added), collapse = ", ")
+  s$CisBP_Removed <- paste(unique(removed), collapse = ", ")
+  s$CisBP_Unchanged <- paste(unique(unchanged), collapse = ", ")
+  s
+})
+cisbp_changed <- bind_rows(cisbp_changed)
+cisbp_changed[cisbp_changed == ""] <- NA
+cisbp_changed[cisbp_changed == "NA"] <- NA
+cisbp_changed <- cisbp_changed[, c(1,2,5,6,7)]
+
+##mirna (100 top expressing)
+mirna_filter100_changed <- split(mirna_filter100, mirna_filter100$MutID)
+mirna_filter100_changed <- lapply(mirna_filter100_changed, function(s){
+  wt <- unlist(strsplit(s$miRNA_In_WT, ", "))
+  mut <- unlist(strsplit(s$miRNA_In_Mutant, ", "))
+  added <- c()
+  removed <- c()
+  unchanged <- c()
+  for(x in wt){
+    if(x %in% mut){unchanged <- append(unchanged, x)}
+    else if(!(x %in% mut)){removed <- append(removed, x)}}
+  for(y in mut){
+    if(!(y %in% wt)){added <- append(added, y)}}
+  s$miRNA_Added <- paste(unique(added), collapse = ", ")
+  s$miRNA_Removed <- paste(unique(removed), collapse = ", ")
+  s$miRNA_Unchanged <- paste(unique(unchanged), collapse = ", ")
+  s
+})
+mirna_filter100_changed <- bind_rows(mirna_filter100_changed)
+mirna_filter100_changed[mirna_filter100_changed == ""] <- NA
+mirna_filter100_changed[mirna_filter100_changed == "NA"] <- NA
+mirna_filter100_changed <- mirna_filter100_changed[, c(1,2,5,6,7)]
+
+##PAS
+pas_changed <- split(pas, pas$MutID)
+pas_changed <- lapply(pas_changed, function(s){
+  wt <- unlist(strsplit(s$PAS_In_WT, ", "))
+  mut <- unlist(strsplit(s$PAS_In_Mutant, ", "))
+  added <- c()
+  removed <- c()
+  unchanged <- c()
+  for(x in wt){
+    if(x %in% mut){unchanged <- append(unchanged, x)}
+    else if(!(x %in% mut)){removed <- append(removed, x)}}
+  for(y in mut){
+    if(!(y %in% wt)){added <- append(added, y)}}
+  s$PAS_Added <- paste(unique(added), collapse = ", ")
+  s$PAS_Removed <- paste(unique(removed), collapse = ", ")
+  s$PAS_Unchanged <- paste(unique(unchanged), collapse = ", ")
+  s
+})
+pas_changed <- bind_rows(pas_changed)
+pas_changed[pas_changed == ""] <- NA
+pas_changed[pas_changed == "NA"] <- NA
+pas_changed <- pas_changed[, c(1,2,5,6,7)]
+```
+Join motif dfs together
+```{r}
+##put together
+motifs_changed <- left_join(cisbp_changed[,1:4], eclip_changed[,1:4])
+motifs_changed <- left_join(motifs_changed, RBN_changed[,1:4])
+motifs_changed <- left_join(motifs_changed, mirna_filter100_changed[,1:4])
+motifs_changed <- left_join(motifs_changed, pas_changed[,1:4])
+
+motifs_changed$All_NA <- apply(motifs_changed[,3:12], 1, function(x) all(is.na(x)))
+sum(motifs_changed$All_NA, na.rm = TRUE) #2027 mutations (29.4%) have no motifs associated
+
+write.csv(motifs_changed, "All_Motifs_Changed_top100miRNA_MPRA.csv", row.names = FALSE)
+```
+
+RNA structure/deltaG information:
+
+```{r}
+deltaG <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/small_seq_on_plasmid_April_2021/rnafold/free_energy_minimum_Twist_order.txt", 
+    "\t", escape_double = FALSE, trim_ws = TRUE)
+##clean up file 
+deltaG$merged_id <- str_sub(deltaG$merged_id, 2) #get rid of ">" character
+deltaG$energy <- str_sub(deltaG$energy, 2, -2) #get rid of "()" characters
+deltaG$type <- ifelse(grepl("Control", deltaG$merged_id), "Control", ifelse(grepl("Mutant", deltaG$merged_id), "Mutant", ifelse(grepl("WT", deltaG$merged_id), "WT", "??")))
+deltaG$merged_id <- str_remove(deltaG$merged_id, "_Mutant|_WT|_Control")
+##only use energy from WT sequence
+deltaG <- deltaG %>% filter(type=="WT") %>% select(merged_id, energy)
+```
+
+GC content:
+
+```{r}
+seqs <- read.delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_31_byhand.txt", stringsAsFactors=FALSE)
+seqs_2 <- read.delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_6861.txt", stringsAsFactors=FALSE)
+
+MPRA_seqs <- full_join(seqs, seqs_2)
+MPRA_seqs <- split(MPRA_seqs, MPRA_seqs$id)
+MPRA_seqs <- lapply(MPRA_seqs, function(s){
+  # find GC content of full 201bp
+  seq <- s$ref_Sequence
+  num_g <- str_count(seq, "G")
+  num_c <- str_count(seq, "C")
+  gc_full <- (num_g + num_c) / str_length(seq) * 100
+  s$gc_full <- gc_full
+  s
+})
+MPRA_seqs <- bind_rows(MPRA_seqs)
+```
+
+Add conservation, motifs, deltaG, and GC content all together in one dataframe
+#conservation already added to MPRA in its own section
+
+```{r}
+determinants <- MPRA %>%
+  left_join(MPRA_seqs %>% select(id, gc_full), by=c("ID"="id")) %>%
+  left_join(deltaG %>% select(merged_id, energy), by=c("ID"="merged_id")) %>%
+  left_join(motifs_changed, by=c("ID"="MutID")) 
+
+#add significance in polysome MPRA
+polysome <-read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv")[,-1]
+sig_polysome <- polysome %>% filter(xtail_FDR_v2<0.10, Comparison!="RNA:DNA") %>% pull(barcode)
+sig_polysome <- unique(sig_polysome)
+determinants$polysome_sig <- ifelse(determinants$ID %in% sig_polysome, "Significant", "Not Significant")
+
+#add significance in IVT MPRA
+IVT <- read_csv("~/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Read_count_filtered/IVT_stats_9-19.csv")[,-1]
+sig_IVT <- IVT %>% 
+  filter(hr_1_WT>=24, hr_1_Mut>=24) %>%
+  filter((hr3_test<0.05&abs(hr3_log2FC)>0.3) | (hr6_test<0.05 & abs(hr6_log2FC)>0.3)) %>%
+  filter(abs(logFC_halflife)>0.2) %>%
+  pull(barcode)
+determinants$IVT_sig <- ifelse(determinants$ID %in% sig_IVT, "Significant", "Not Significant")
+
+write.csv(determinants, "Determinants_mutation_function.csv")
+```
+

@@ -1,0 +1,75 @@
+---
+title: "RP_Comparison"
+output: html_document
+date: "2022-11-14"
+---
+
+```{r}
+library(tidyverse)
+library(hrbrthemes)
+```
+
+Import files
+
+```{r}
+#mutation-patient file
+utr3_muts <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+
+#MPRA results
+IVT_MPRA <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Read_count_filtered/high_filters_downstream.csv")[,-1]
+poly_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv")[,-c(1,3:5,10:13)] %>%
+  left_join(utr3_muts %>% select(id, sampleName), by = c("barcode" = "id"))
+
+#RP
+RP_TE <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- Ribosome Profiling/TE Mutational Data_05-28-20.csv")[,-1]
+RP_Txn <- read_csv("~/Hsieh Lab/Project- Ribosome Profiling/Transcript Mutational Data_05-28-20.csv")[,-1]
+RP_Txn$sampleName <- gsub("L","l", RP_Txn$sampleName)
+```
+
+
+Compare RP Txn to IVT Data
+```{r}
+IVT_RPTxn <- IVT_MPRA %>%
+  separate_rows(sampleName, sep = ", ") %>%
+  select(barcode, FC_half_life, logFC_halflife, hr3_log2FC, hr3_test, hr6_log2FC, hr6_test, sig_E, Gene.refGene, sampleName) %>%
+  filter(sig_E == "Sig") %>%
+  left_join(RP_Txn %>% select(gene, log2FoldChange, FC, padj, sampleName, log10_padj), by = c("Gene.refGene" = "gene", "sampleName" = "sampleName")) %>%
+  distinct()
+IVT_RPTxn$agree <- ifelse(IVT_RPTxn$logFC_halflife > 0 & IVT_RPTxn$log2FoldChange > 0, "up", ifelse(IVT_RPTxn$logFC_halflife < 0 & IVT_RPTxn$log2FoldChange < 0, "down", "disagree"))
+
+#write.csv(IVT_RPTxn, "IVT_RPTxn_Comparison.csv")
+
+ggplot(IVT_RPTxn , aes(x=logFC_halflife, y=log2FoldChange, color = agree)) + 
+  geom_point(size = 3) +
+  scale_color_manual(values = c("grey", "mediumaquamarine", "mediumaquamarine")) + 
+  geom_smooth(method=lm , color="slateblue", fill= "grey", se=FALSE) +
+  geom_hline(yintercept =0) + 
+  geom_vline(xintercept=0) + 
+  theme_classic() + 
+  theme(legend.position = "None", axis.line = element_blank()) + 
+  labs(x= "IVT FC half-life", y="RP Txn log2FC")
+#ggsave("IVT_RP.tiff", width = 5, height = 5)
+```
+
+Compare RP TE to Poly Data
+```{r}
+Poly_RPTE <- poly_MPRA %>%
+  filter(xtail_FDR_v2 <0.1, Comparison == "TotalPoly:RNA") %>%
+  left_join(RP_TE %>% select(gene, log2FC_TE_v2, FDR_v2, sampleName.y), by = c("Gene.refGene" = "gene", "sampleName" = "sampleName.y"))
+Poly_RPTE$agree <- ifelse(Poly_RPTE$xtail_log2FC_TE_v2 > 0 & Poly_RPTE$log2FC_TE_v2 > 0, "up", ifelse(Poly_RPTE$xtail_log2FC_TE_v2 < 0 & Poly_RPTE$log2FC_TE_v2 < 0, "down", "disagree"))
+
+#write.csv(Poly_RPTE, "PolyMPRA_RP-TE_Comparison.csv")
+
+ggplot(Poly_RPTE, aes(x=xtail_log2FC_TE_v2, y=log2FC_TE_v2, color = agree)) + 
+  geom_point(size = 3) +
+  scale_color_manual(values = c("grey", "mediumaquamarine", "mediumaquamarine")) + 
+  geom_smooth(method=lm , color="slateblue", se=FALSE) +
+  geom_hline(yintercept =0) + 
+  geom_vline(xintercept=0) + 
+  theme_classic() + 
+  theme(legend.position = "None", axis.line = element_blank()) + 
+  labs(x= "log2FC(MPRA TE)", y="log2FC(RP TE)") +
+  xlim(c(-2.5,2.5))
+#ggsave("PolyMPRA_RP_TE.tiff", width = 5, height = 5)
+```
+

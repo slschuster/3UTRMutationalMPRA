@@ -1,0 +1,48 @@
+---
+title: "Polysome_MPRA_Analysis"
+output: html_document
+date: "2022-11-13"
+---
+
+Libraries
+```{r}
+library(tidyverse)
+library(enrichR)
+```
+
+Import MPRA xtail results
+```{r}
+poly_MPRA <- read_csv("~/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/All_Polysome_MPRA_results.csv") %>%
+  select(barcode, xtail_log2FC_TE_v2, xtail_pvalue_v2, xtail_FDR_v2, Gene.refGene, Comparison) %>%
+  filter(Comparison %in% c("HighPoly:RNA", "TotalPoly:RNA")) %>%
+  mutate(sig_polysome = ifelse(xtail_FDR_v2<0.10, "Significant", "Not Significant"))
+sig_poly <- unique(poly_MPRA %>% filter(sig_polysome == "Significant") %>% pull(barcode))
+```
+
+Make waterfall plot of significant hits
+```{r}
+#get motif data
+motifs <- read_csv("~/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS4_Determinants_mutation_function.csv")[,-1]
+poly_MPRA <- poly_MPRA %>% left_join(motifs %>% select("ID", "All_NA"), by=c("barcode"="ID"))
+
+filter(poly_MPRA, sig_polysome == "Significant", Comparison=="TotalPoly:RNA") %>%
+  mutate(barcode = fct_reorder(barcode, xtail_log2FC_TE_v2)) %>%
+  ggplot(aes(x=barcode, y=xtail_log2FC_TE_v2, fill = All_NA)) +
+  geom_bar(stat = "identity", alpha=0.6) +
+  theme_classic() +
+  theme(axis.title.x = element_blank(), axis.text.x = element_blank(), axis.ticks.x = element_blank()) +
+  labs(title = "Waterfall- Sig w/ Motif", y="log2FC TE") +  
+  scale_fill_manual(values = c("TRUE" = "#999999","FALSE"="#0072B2"))
+```
+
+GSEA
+```{r}
+GSEA_poly <- read_csv("~/Hsieh Lab/Project- MPRA/GSEA_translation.csv") #from MSigDB
+GSEA_poly$Gene_Set<- factor(GSEA_poly$Gene_Set, levels=rev(GSEA_poly$Gene_Set))
+ggplot(GSEA_poly, aes(x=-log(FDR, 10), y=Gene_Set, size=Overlap,color=-log(FDR, 10))) + 
+  geom_point() +
+  scale_size_area(max_size = 5) +
+  scale_colour_gradient(low="blue",high="orange") + 
+  labs(y= "", x="-log10(FDR)")
+```
+

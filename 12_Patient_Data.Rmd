@@ -1,6 +1,7 @@
 ---
 title: "Patient_Data"
 output: html_document
+Author: Samantha L. Schuster
 date: "2022-11-11"
 ---
 
@@ -14,10 +15,10 @@ library(survival)
 Set up raw patient data
 ```{r patient data setup}
 #load patient outcome data (only want first 32 column)
-patient_data_raw <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- Computational/Patient-Outcomes/Raw-Data.csv")[,1:32]
+patient_data_raw <- read_csv("Patient-Outcomes/Raw-Data.csv")[,1:32]
 
 #subset mutational data to only UW TAN patients, keep all mutations in each patient separate rows
-combined_2_hyperremove <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+combined_2_hyperremove <- read_csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
 UW_muts <- filter(combined_2_hyperremove, !grepl("DTB|lucap", sampleName))
 UW_muts$sampleName <- sub("_","-",UW_muts$sampleName)
 ```
@@ -25,10 +26,10 @@ UW_muts$sampleName <- sub("_","-",UW_muts$sampleName)
 Set up lists of oncogenic mutations and associated patients
 ```{r}
 #df with oncogene vs tumor suppressor info
-directions <- read.csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/4sU-IVT MPRA Analysis (Actual)/Patient Analysis/directionality.csv")
+directions <- read.csv("Patient Analysis/directionality.csv")
 
 #patients with top oncogenic stability mutation according to MPRA
-IVT_results <- read.csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS3_All_IVT_MPRA_results.csv")
+IVT_results <- read.csv("TableS3_All_IVT_MPRA_results.csv")
 IVT_results <- left_join(IVT_results, directions, by=c("Gene"="Gene.refGene"))
 IVT_results <- IVT_results %>%
   mutate(FC_direction = ifelse(hr3_log2FC>0 & hr3_test<0.05, "Up", ifelse(hr6_log2FC>0 & hr6_test<0.05, "Up",
@@ -41,7 +42,7 @@ onco_muts_IVT <- IVT_results %>%
 onco_patients_IVT <- unique(filter(UW_muts, id %in% onco_muts_IVT)$sampleName)
 
 #patients with top oncogenic translation mutation according to MPRA
-poly_directionality_df <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- MPRA/Polysome Computational Analysis/Patient Outcome/Patient_Outcomes_Directionality_v3.csv")
+poly_directionality_df <- read_csv("Patient Outcome/Patient_Outcomes_Directionality_v3.csv")
 onco_muts_poly <- filter(poly_directionality_df, Mut_Direction == "Up", !between(xtail_log2FC_TE_v2, -0.75, 0.75), Comparison %in% c("HighPoly:RNA", "TotalPoly:RNA"))$barcode
 onco_patients_poly <- unique(filter(UW_muts, id %in% onco_muts_poly)$sampleName)
 
@@ -166,7 +167,7 @@ ggsurvplot(
 Compare TMB from different patient groups:
 ```{r patient data TMB}
 #TMB Data
-TMB <- read_delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/TMB_9_20_2022/TMB_utr3_9_20_2022.txt", 
+TMB <- read_delim("MAIN_DATA/UTR_Project_hg38/TMB_9_20_2022/TMB_utr3_9_20_2022.txt", 
     "\t", escape_double = FALSE, trim_ws = TRUE) %>%
   filter(!grepl("DTB|lucap", samples))
 TMB$samples <- sub("_","-",TMB$samples)

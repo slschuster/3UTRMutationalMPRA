@@ -1,5 +1,6 @@
 ---
 title: "CRISPRable_Mutations"
+Author: Samantha L. Schuster
 output: html_document
 date: "2022-11-11"
 ---
@@ -11,7 +12,7 @@ library(Biostrings)
 ```
 
 ```{r}
-seqs <- read.delim("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_6861.txt", stringsAsFactors=FALSE)
+seqs <- read.delim("sequences/sequences_6861.txt", stringsAsFactors=FALSE)
 ```
 
 

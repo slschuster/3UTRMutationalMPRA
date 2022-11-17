@@ -1,0 +1,321 @@
+---
+title: "Polysome MPRA Analysis"
+author: "Sonali Arora"
+date: "Nov 16, 2022"
+output:
+  html_document:
+    toc: true
+    them
+
+---
+
+# Creating an index & aligning the data using bowtie2
+
+First we created a  fastq file containing all the sequences.
+
+```{r}
+
+rm(list=ls())
+setwd("/fh/fast/hsieh_a/hsiehlab/MAIN_DATA/UTR_Project_hg38/small_seq_on_plasmid_April_2021")
+library(readxl)
+df = read_excel("Twist_Oligo_Order.xlsx", sheet=1)
+df = as.data.frame(df)
+space = grep(" ", df[,1])
+df[space, 1] = gsub(" ", "_", df[space, 1])
+
+df$merged_id =apply(df, 1, function(x) paste0(c(x[1], x[2]), collapse="_"))
+rm1 = which(duplicated(df$merged_id))
+df= df[-rm1, ]
+
+df[ which(df[,1]=="miRNA_(+)_miR-182-5p_FOXO3a"), 7] = "miRNA_plus_miR-182-5p_FOXO3a_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-182-5p_CAMK2N1"), 7] = "miRNA_plus_miR-182-5p_CAMK2N1_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-182-5p_HIF1AN"), 7] = "miRNA_plus_miR-182-5p_HIF1AN_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-221-5p_SOCS1"), 7] = "miRNA_plus_miR-221-5p_SOCS1_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-221-5p_EVC"), 7] = "miRNA_plus_miR-221-5p_EVC_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-18a-5p_STK4"), 7] = "miRNA_plus_miR-18a-5p_STK4_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-18a-5p_IRF2"), 7] = "miRNA_plus_miR-18a-5p_IRF2_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-106a-5p_TGFBR2"), 7] = "miRNA_plus_miR-106a-5p_TGFBR2_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-106a-5p_FASTK"), 7] = "miRNA_plus_miR-106a-5p_FASTK_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-32-5p_KLF4"), 7] = "miRNA_plus_miR-32-5p_KLF4_Control"
+df[ which(df[,1]=="miRNA_(+)_miR-32-5p_TOB1"), 7] = "miRNA_plus_miR-32-5p_TOB1_Control"
+
+df[grep("Oikonomou", df[,1]), c("ID", "Type", "merged_id")]
+df[grep("miRNA", df[,1]), c("ID", "Type", "merged_id")]
+write.table(df, "Twist_Oligo_Order_with_merged_ids.txt", sep ="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+library(seqinr)
+seq = toupper(df[,"Full_Oligo"])
+nms = df$merged_id
+write.fasta(sequences = as.list(seq), names=nms,nbchar = 80, file.out = "mpra_lib_full.fa")
+```
+Next, used bowtie2 to build an index
+```{}
+bowtie2-build mpra_lib_full.fa mpra_lib_full
+```
+Bowtie2 was run on each sample using the following parameters
+```{}
+index=/bowtie2_index_full/mpra_lib_full
+r1=$dir/${sample}_L001_R1_001.fastq.gz
+r2=$dir/${sample}_L001_R2_001.fastq.gz
+bowtie2 -x $index -1 $r1 -2 $r2 -N 0 --no-sq --no-hd -S ${sample}.sam
+```
+
+# Generating cpm counts 
+
+```{r}
+wt_ids = read.delim("v2_strict_150M_WT_ids_with_counts_per_sample.txt", header=T, stringsAsFactors = FALSE, row.names=1)
+mut_ids =  read.delim("v2_strict_150M_Mutant_ids_with_counts_per_sample.txt", header=T, stringsAsFactors = FALSE, row.names=1)
+colnames(wt_ids) = paste0(colnames(wt_ids), "_WT")
+colnames(mut_ids) = paste0(colnames(mut_ids), "_Mutant")
+rownames(wt_ids) =  gsub("_WT", "", rownames(wt_ids))
+rownames(mut_ids) =  gsub("_Mutant", "", rownames(mut_ids))
+identical(rownames(wt_ids), rownames(mut_ids))
+
+countData = cbind(wt_df, mut_df)
+colnames(countData) = gsub("^X", "", colnames(countData))
+
+temp = strsplit(colnames(countData), "[_]")
+coldata = lapply(temp, function(x){
+  a1 = grep("^1|^2|^3|^4|^5|^6", x, value=T)
+  a2 = grep("WT|Mutant", x, value=T)
+
+  c(x[1], a1, a2)
+})
+coldata = do.call(rbind, coldata)
+colnames(coldata) = c("sampleType", "Rep", "sampleGroup")
+
+library(edgeR)
+cpm_counts = cpm(countData+1)
+
+writedf = cbind(barcode = rownames(countData), countData)
+write.table(writedf, "raw_counts_all_samples.txt", sep ="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+writedf = cbind(barcode = rownames(cpm_counts), cpm_counts)
+write.table(writedf, "cpm_counts_all_samples.txt", sep ="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+log2_cpm = log2(cpm_counts)
+writedf = cbind(barcode = rownames(log2_cpm), log2_cpm)
+write.table(writedf, "log2_cpm_counts_all_samples.txt", sep ="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+```
+
+# Creating TE files for total polysome / mRNA
+
+```{r}
+res_fname = "TE_data_combinedPoly_totalRNA.txt"
+
+te_mat = data.frame(
+  te_rep1_wt = (cpm_counts[, "High_Poly_1_S4_WT"]+ cpm_counts[,"Low_Poly_1_S3_WT"])/cpm_counts[,"Total_RNA_1_S1_WT"],
+  te_rep2_wt = (cpm_counts[, "High_Poly_2_S8_WT"]+ cpm_counts[,"Low_Poly_2_S7_WT"])/ cpm_counts[,"Total_RNA_2_S5_WT"],
+  te_rep3_wt = (cpm_counts[, "High_Poly_3_S12_WT"]+ cpm_counts[,"Low_Poly_3_S11_WT"])/ cpm_counts[,"Total_RNA_3_S9_WT"],
+  te_rep4_wt = (cpm_counts[, "High_Poly_4_S16_WT"]+ cpm_counts[,"Low_Poly_4_S15_WT"])/ cpm_counts[,"Total_RNA_4_S13_WT"],
+  te_rep5_wt = (cpm_counts[, "High_Poly_5_S20_WT"]+ cpm_counts[,"Low_Poly_5_S19_WT"])/ cpm_counts[,"Total_RNA_5_S17_WT"],
+  te_rep6_wt = (cpm_counts[, "High_Poly_6_S24_WT"]+ cpm_counts[,"Low_Poly_6_S23_WT"])/ cpm_counts[,"Total_RNA_6_S21_WT"],
+
+  te_rep1_mut = (cpm_counts[, "High_Poly_1_S4_Mutant"]+ cpm_counts[,"Low_Poly_1_S3_Mutant"])/ cpm_counts[,"Total_RNA_1_S1_Mutant"],
+  te_rep2_mut = (cpm_counts[,"High_Poly_2_S8_Mutant"]+ cpm_counts[,"Low_Poly_2_S7_Mutant"])/ cpm_counts[,"Total_RNA_2_S5_Mutant"],
+  te_rep3_mut = (cpm_counts[, "High_Poly_3_S12_Mutant"]+ cpm_counts[,"Low_Poly_3_S11_Mutant"]) / cpm_counts[,"Total_RNA_2_S5_Mutant"],
+  te_rep4_mut = (cpm_counts[, "High_Poly_4_S16_Mutant"]+ cpm_counts[,"Low_Poly_4_S15_Mutant"])/ cpm_counts[,"Total_RNA_4_S13_Mutant"],
+  te_rep5_mut = (cpm_counts[,"High_Poly_5_S20_Mutant"]+ cpm_counts[,"Low_Poly_5_S19_Mutant"])/ cpm_counts[,"Total_RNA_5_S17_Mutant"],
+  te_rep6_mut = (cpm_counts[, "High_Poly_6_S24_Mutant"]+ cpm_counts[,"Low_Poly_6_S23_Mutant"])/ cpm_counts[,"Total_RNA_6_S21_Mutant"]
+
+)
+
+te_mat$avg_te_wt = rowMeans(te_mat[, c("te_rep1_wt", "te_rep2_wt", "te_rep3_wt",
+                                       "te_rep4_wt", "te_rep5_wt", "te_rep6_wt")])
+te_mat$avg_te_ko = rowMeans(te_mat[, c("te_rep1_mut", "te_rep2_mut", "te_rep3_mut",
+                                       "te_rep4_mut", "te_rep5_mut", "te_rep6_mut" )])
+
+temp_raw_counts_poly = data.frame(
+  raw_poly_1_WT = countData[, "High_Poly_1_S4_WT"]+ countData[,"Low_Poly_1_S3_WT"],
+  raw_poly_2_WT = countData[, "High_Poly_2_S8_WT"]+ countData[,"Low_Poly_2_S7_WT"],
+  raw_poly_3_WT = countData[, "High_Poly_3_S12_WT"]+ countData[,"Low_Poly_3_S11_WT"],
+  raw_poly_4_WT = countData[, "High_Poly_4_S16_WT"]+ countData[,"Low_Poly_4_S15_WT"],
+  raw_poly_5_WT = countData[, "High_Poly_5_S20_WT"]+ countData[,"Low_Poly_5_S19_WT"],
+  raw_poly_6_WT =countData[, "High_Poly_6_S24_WT"]+ countData[,"Low_Poly_6_S23_WT"],
+
+  raw_poly_1_Mutant =countData[, "High_Poly_1_S4_Mutant"]+ countData[,"Low_Poly_1_S3_Mutant"],
+  raw_poly_2_Mutant = countData[,"High_Poly_2_S8_Mutant"]+ countData[,"Low_Poly_2_S7_Mutant"],
+  raw_poly_3_Mutant =countData[, "High_Poly_3_S12_Mutant"]+ countData[,"Low_Poly_3_S11_Mutant"],
+  raw_poly_4_Mutant= countData[, "High_Poly_4_S16_Mutant"]+ countData[,"Low_Poly_4_S15_Mutant"],
+  raw_poly_5_Mutant= countData[,"High_Poly_5_S20_Mutant"]+ countData[,"Low_Poly_5_S19_Mutant"],
+  raw_poly_6_Mutant=countData[, "High_Poly_6_S24_Mutant"]+ countData[,"Low_Poly_6_S23_Mutant"]
+)
+
+temp_cpm_counts_poly = data.frame(
+  cpm_poly_1_WT = cpm_counts[, "High_Poly_1_S4_WT"]+ cpm_counts[,"Low_Poly_1_S3_WT"],
+  cpm_poly_2_WT = cpm_counts[, "High_Poly_2_S8_WT"]+ cpm_counts[,"Low_Poly_2_S7_WT"],
+  cpm_poly_3_WT = cpm_counts[, "High_Poly_3_S12_WT"]+ cpm_counts[,"Low_Poly_3_S11_WT"],
+  cpm_poly_4_WT = cpm_counts[, "High_Poly_4_S16_WT"]+ cpm_counts[,"Low_Poly_4_S15_WT"],
+  cpm_poly_5_WT = cpm_counts[, "High_Poly_5_S20_WT"]+ cpm_counts[,"Low_Poly_5_S19_WT"],
+  cpm_poly_6_WT =cpm_counts[, "High_Poly_6_S24_WT"]+ cpm_counts[,"Low_Poly_6_S23_WT"],
+
+  cpm_poly_1_mut =cpm_counts[, "High_Poly_1_S4_Mutant"]+ cpm_counts[,"Low_Poly_1_S3_Mutant"],
+  cpm_poly_2_mut = cpm_counts[,"High_Poly_2_S8_Mutant"]+ cpm_counts[,"Low_Poly_2_S7_Mutant"],
+  cpm_poly_3_mut =cpm_counts[, "High_Poly_3_S12_Mutant"]+ cpm_counts[,"Low_Poly_3_S11_Mutant"],
+  cpm_poly_4_mut= cpm_counts[, "High_Poly_4_S16_Mutant"]+ cpm_counts[,"Low_Poly_4_S15_Mutant"],
+  cpm_poly_5_mut= cpm_counts[,"High_Poly_5_S20_Mutant"]+ cpm_counts[,"Low_Poly_5_S19_Mutant"],
+  cpm_poly_6_mut=cpm_counts[, "High_Poly_6_S24_Mutant"]+ cpm_counts[,"Low_Poly_6_S23_Mutant"]
+)
+
+idx =grep("Total", coldata[, "sampleType"])
+temp_countData = countData[, idx]
+temp_cpm_counts = cpm_counts[, idx]
+
+colnames(temp_countData) = paste0("raw_", colnames(temp_countData))
+colnames(temp_cpm_counts) = paste0("cpm_", colnames(temp_cpm_counts))
+
+finaldf = cbind(barcode = rownames(te_mat),
+                te_mat, temp_cpm_counts_poly, temp_cpm_counts,
+                temp_raw_counts_poly, temp_countData)
+
+write.table(finaldf, file.path(resdir, res_fname),
+            sep ="\t", quote=FALSE, row.names = FALSE, col.names=TRUE)
+
+```
+
+# Creating TE files for High polysome / mRNA
+```{r}
+
+grep("High", colnames(countData), value=T)
+res_fname = "TE_data_highPoly_totalRNA.txt"
+te_mat = data.frame(
+  te_rep1_wt = cpm_counts[, "High_Poly_1_S4_WT"]/ cpm_counts[,"Total_RNA_1_S1_WT"],
+  te_rep2_wt = cpm_counts[, "High_Poly_2_S8_WT"]/ cpm_counts[,"Total_RNA_2_S5_WT"],
+  te_rep3_wt = cpm_counts[, "High_Poly_3_S12_WT"]/ cpm_counts[,"Total_RNA_3_S9_WT"],
+  te_rep4_wt = cpm_counts[, "High_Poly_4_S16_WT"]/ cpm_counts[,"Total_RNA_4_S13_WT"],
+  te_rep5_wt = cpm_counts[, "High_Poly_5_S20_WT"]/ cpm_counts[,"Total_RNA_5_S17_WT"],
+  te_rep6_wt = cpm_counts[, "High_Poly_6_S24_WT"]/ cpm_counts[,"Total_RNA_6_S21_WT"],
+
+  te_rep1_mut = cpm_counts[, "High_Poly_1_S4_Mutant"]/ cpm_counts[,"Total_RNA_1_S1_Mutant"],
+  te_rep2_mut = cpm_counts[,"High_Poly_2_S8_Mutant"]/ cpm_counts[,"Total_RNA_2_S5_Mutant"],
+  te_rep3_mut = cpm_counts[, "High_Poly_3_S12_Mutant"]/ cpm_counts[,"Total_RNA_3_S9_Mutant"] ,
+  te_rep4_mut = cpm_counts[, "High_Poly_4_S16_Mutant"]/ cpm_counts[,"Total_RNA_4_S13_Mutant"],
+  te_rep5_mut = cpm_counts[,"High_Poly_5_S20_Mutant"]/ cpm_counts[,"Total_RNA_5_S17_Mutant"],
+  te_rep6_mut = cpm_counts[, "High_Poly_6_S24_Mutant"]/ cpm_counts[,"Total_RNA_6_S21_Mutant"]
+)
+
+te_mat$avg_te_wt = rowMeans(te_mat[, c("te_rep1_wt", "te_rep2_wt", "te_rep3_wt",
+                                       "te_rep4_wt", "te_rep5_wt", "te_rep6_wt")])
+te_mat$avg_te_ko = rowMeans(te_mat[, c("te_rep1_mut", "te_rep2_mut", "te_rep3_mut",
+                                       "te_rep4_mut", "te_rep5_mut", "te_rep6_mut" )])
+
+idx =grep("High|Total", coldata[, "sampleType"])
+temp_countData = countData[, idx]
+temp_cpm_counts = cpm_counts[, idx]
+
+colnames(temp_countData) = paste0("raw_", colnames(temp_countData))
+colnames(temp_cpm_counts) = paste0("cpm_", colnames(temp_cpm_counts))
+
+finaldf = cbind(barcode = rownames(te_mat),
+                te_mat, temp_cpm_counts, temp_countData)
+
+write.table(finaldf, file.path(resdir, res_fname),
+            sep ="\t", quote=FALSE, row.names = FALSE, col.names=TRUE)
+
+```
+
+# xtail analysis 
+
+In the next code snippet, we read in the file created above and analyze the data using xtail.
+
+```{r}
+rm(list=ls())
+library(writexl)
+library(xtail)
+library(DESeq2)
+library(ggplot2)
+
+xtail_fun = function( fname, res_fname , numerator, denom){
+  # read in data  and fix headers.
+  all_data = read.delim(fname, header=T, stringsAsFactors = FALSE, row.names=1)
+  data = all_data[, grep("raw_", colnames(all_data))]
+  colnames(data) = gsub("raw_", "", colnames(data))
+
+  # run xtail
+  rp.idx = grep(numerator, colnames(data))
+  test.rp = data[, rp.idx]
+
+  rna.idx = grep(denom, colnames(data))
+  test.rna = data[, rna.idx]
+
+  test.group = c(rep("A", 6),rep("B", 6) )
+  colnames(test.rp) = c(paste0("control", 1:6), paste0("treatment", 1:6))
+  colnames(test.rna) = colnames(test.rp)
+
+  condition  <- c(rep("control", 6), rep("treatment",6))
+  test.results <- xtail(test.rna,test.rp,condition,bins=1000)
+
+  xtail_res = resultsTable(test.results)
+  xtail_res = xtail_res[ ,grep("_v1|_v2", colnames(xtail_res))]
+  xtail_res$FDR_v2 = p.adjust(xtail_res$pvalue_v2, method="BH")
+
+  xtail_res = xtail_res[, c("log2FC_TE_v2", "pvalue_v2", "FDR_v2")]
+  colnames(xtail_res) = paste0("xtail_", colnames(xtail_res))
+  xtail_res = xtail_res[ rownames(all_data), ]
+
+  # write final file to disk
+  finaldf = data.frame(barcode = rownames(all_data),
+                        xtail_res,  all_data )
+
+  write.table(finaldf, res_fname, sep="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+  write_xlsx(finaldf, gsub(".txt", ".xlsx", res_fname))
+
+
+}
+
+fname = "TE_data_combinedPoly_totalRNA.txt"
+res_fname = "Master_file_combinedPoly_totalRNA_8_31_2021.txt"
+numerator  = "poly" # RP
+denom = "Total" # RNA
+xtail_fun(fname, res_fname, numerator , denom)
+
+fname = "TE_data_highPoly_totalRNA.txt"
+res_fname = "Master_file_highPoly_totalRNA_8_31_2021.txt"
+numerator  = "High" # RP
+denom = "Total" # RNA
+xtail_fun(fname, res_fname, numerator , denom)
+```
+
+# correlation for polysome MPRA + alignment, 
+```{r}
+df = read.delim("log2_cpm_counts_all_samples.txt", header=T, stringsAsFactors=FALSE, row.names=1, check.names=FALSE)
+
+wt_df = df[, grep("WT", colnames(df))]
+mut_df = df[, grep("Mutant", colnames(df))]
+colnames(mut_df) = gsub("_Mutant", "", colnames(mut_df))
+colnames(wt_df) = gsub("_WT", "", colnames(wt_df))
+identical(colnames(mut_df), colnames(wt_df))
+df = rbind(mut_df, wt_df)
+
+
+types= c("pDNA", "Total_RNA", "High_Poly","Low_Poly", "80S")
+cols1 = c("PuRd" , "YlGn", "GnBu", "Blues")
+
+pdf("correlation_plots_10_3_2022.pdf", width =10, height =10)
+q1 =lapply(1:length(types), function(x){
+  par(oma=c(0,0,2,0))
+  category = types[x]
+  dna = df[, grep(category, colnames(df))]
+  temp = strsplit(colnames(dna), "[_]")
+  coldata = sapply(temp, function(x){
+    a1 = grep("^1|^2|^3|^4|^5|^6", x, value=T)
+    a2 = grep("WT|Mutant", x, value=T)
+
+    paste0(c("rep", a1, a2), collapse=" ")
+  })
+  colnames(dna) = unlist(coldata)
+  dna = cor(dna )
+  p_mat1 <- cor.mtest(dna, conf.level = .95)$p
+  corrplot(dna, type = "upper", order = "original", col = brewer.pal(n = 8, name ="GnBu"),
+           addCoef.col = "white", # Add coefficient of correlation
+           tl.col = "black", tl.srt = 45, tl.cex=1.5,
+           col.lim = c(0.7, 1), is.corr = FALSE,
+           cl.cex=1.2, cl.align="l",
+           title = gsub("[_]", " ",category),
+           mar=c(0,0,2,0))
+})
+dev.off()
+```
+
+
+

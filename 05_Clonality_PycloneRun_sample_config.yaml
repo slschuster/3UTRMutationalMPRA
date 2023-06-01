@@ -1,0 +1,39 @@
+working_dir: ./
+
+trace_dir: ./
+
+density: pyclone_beta_binomial
+
+num_iters: 10000
+
+base_measure_params:
+  alpha: 1
+  beta: 1
+
+concentration:
+  value: 1.0
+
+  prior:
+    shape: 1.0
+    rate: 0.001
+
+beta_binomial_precision_params:
+  value: 1000
+
+  prior:
+    shape: 1.0
+    rate: 0.001
+
+  proposal:
+    precision: 0.01
+
+init_method:
+    connected
+samples:
+  add_sample_Name:
+    mutations_file: sample_data.yaml
+
+    tumour_content:
+      value: add tumor fraction value here
+
+    error_rate: 0.001

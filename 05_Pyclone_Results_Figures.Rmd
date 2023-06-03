@@ -1,0 +1,75 @@
+---
+title: "Pyclone Results"
+author: "Samantha Schuster"
+date: "2023-06-02"
+output: html_document
+---
+
+```{r}
+library(tidyverse)
+library(qdapRegex)
+library(hrbrthemes)
+library(viridis)
+```
+
+
+Putting together results & figures
+```{r}
+files <- list.files("H:/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/pyclone_analysis/results_summary_05262023/", full.names = TRUE)[1:182]
+
+#put all pyclone results together
+total_clonality <- read_delim(files[1], 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+
+for(file in files[2:182]){
+  df <- read_delim(file, 
+    delim = "\t", escape_double = FALSE, 
+    trim_ws = TRUE)
+  patient <- ex_between(file, "05262023/", ".loci")[[1]]
+  if(patient != unique(df$sample_id)) {
+    df$sample_id <- patient
+  }
+  total_clonality <- rbind(total_clonality, df)
+}
+#fix sample names
+total_clonality$sample_id <- sub("_", "-", total_clonality$sample_id)
+
+
+utr3_muts_combined <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Manuscripts/3'UTR Paper/Tables/v1/TableS1_Master_3UTR_Mutations_Hyperremoved_2+.csv")
+utr3_muts <- read_csv("C:/Users/saman/OneDrive/Documents/Hsieh Lab/Project- hg38/Final Analysis (High)/3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+utr3_muts$sampleName <- sub("_", "-", utr3_muts$sampleName)
+
+utr3_muts <- left_join(utr3_muts, total_clonality %>% select(mutation_id, sample_id, cellular_prevalence), by= c("id" = "mutation_id", "sampleName"= "sample_id")) %>% left_join(utr3_muts_combined %>% select(id, Aggregate))
+
+utr3_clonality <- utr3_muts %>% select(id, Gene.refGene, Tumor_VAF, sampleName, cellular_prevalence)
+
+#write.csv(utr3_clonality, "UTR3_Clonality.csv")
+  
+top25 <- filter(utr3_muts, Aggregate > 8) %>% select(id, Gene.refGene, Tumor_VAF, sampleName, cellular_prevalence, Aggregate)
+
+my_levels <- c("FLRT2", "LPP", "NTRK3", "XKR4", "MMP16", "SH3TC2", "GRIN2A", "GUCY1A2", "SAMD12", "GABRA4", "HOOK3", "LRCH3", "LRRC27", "NOS1", "AFF2", "EIF5AL1", "FOXA1", "HCN1", "HHIP", "KCNJ12", "KPNA6", "PDE1C", "SOX5", "ST8SIA4", "ZNF264")
+
+top25 %>%
+  mutate(Gene.refGene=factor(Gene.refGene, levels=my_levels)) %>%
+  ggplot(aes(x=Gene.refGene, y=cellular_prevalence, fill=Gene.refGene)) +
+  geom_violin() +
+  scale_fill_viridis(discrete=TRUE, alpha=0.6) +
+  geom_jitter(color="black", size=1, alpha=0.9) +
+  theme_minimal() +
+  theme(legend.position = "none", 
+        axis.text.x = element_text(angle = 60, vjust = 0.5, hjust=1)) +
+  labs(title = "Clonality Top Genes", y="Cellular Prevalence", x="")
+ggsave("Top25_Cellular_prevalence.pdf", width=10, height=6)
+
+utr3_muts %>%
+  mutate(mycol = "Group") %>%
+  ggplot(aes(y=cellular_prevalence, x=mycol)) +
+  geom_violin(fill="steelblue", alpha=0.8) +
+  theme_minimal() +
+  labs(title="Clonality across all 3'UTR mutations", y= "Cellular Prevalence", x="") +
+  scale_y_continuous(breaks=c(0.2, 0.4, 0.6, 0.8, 1.0))
+ggsave("Cellular_prevalence_all_violin.pdf", width=3, height=7)
+
+median(total_clonality$cellular_prevalence, na.rm = TRUE)
+```

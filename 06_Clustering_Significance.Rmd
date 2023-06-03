@@ -1,5 +1,5 @@
 ---
-title: "Hotspot_mutations"
+title: "Clustering_Significance"
 output: html_document
 Author: Samantha L. Schuster
 date: "2022-11-14"
@@ -44,7 +44,7 @@ for(gene in utr3_genes){
 pairs$Dist <- as.numeric(pairs$Dist)
 ```
 
-Distribution of hotspot distances
+Distribution of clustered distances
 
 ```{r}
 pairs <- read_csv("Hotspot mutations.csv")
@@ -82,41 +82,16 @@ Make lollipop plots
 ```{r}
 sig_hot <- read_csv("Hotspots/Significant_hotspots.csv")
 
-temp <- sig_hot %>% filter(Gene == "RFX3")
+temp <- sig_hot %>% filter(Gene == "CCL11")
 tstart <- temp$start[1]
 tend <- temp$end[1]
-RFX3_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
+
+CCL11_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
   geom_segment(aes(x=position, xend=position, y=0, yend=patient_no), color = "grey") +
   geom_point(color = "slateblue", size = 4) + 
   theme_minimal() +
-  coord_cartesian(xlim=c(tstart+2000, tend-4000)) + 
-  labs(x="Chromosomal position", y="# patients", title = "RFX3 Hotspot")
+  coord_cartesian(xlim=c(tstart, tend)) + 
+  labs(x="Chromosomal position", y="# patients", title = "CCL11 Hotspot")
 
-temp <- sig_hot %>% filter(Gene == "FCGR2A")
-tstart <- temp$start[1]
-tend <- temp$end[1]
-FCGR2A_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
-  geom_segment(aes(x=position, xend=position, y=0, yend=patient_no), color = "grey") +
-  geom_point(color = "slateblue", size = 4) + 
-  theme_minimal() +
-  coord_cartesian(xlim=c(tstart+2000, tend-4000)) + 
-  labs(x="Chromosomal position", y="# patients", title = "FCGR2A Hotspot")
-
-temp <- sig_hot %>% filter(Gene == "E2F8")
-tstart <- temp$start[1]
-tend <- temp$end[1]
-E2F8_lolli <- ggplot(temp, aes(x=position, y=patient_no)) +
-  geom_segment(aes(x=position, xend=position, y=0, yend=patient_no), color = "grey") +
-  geom_point(color = "slateblue", size = 4) + 
-  theme_minimal() +
-  coord_cartesian(xlim=c(tstart+2000, tend-4000)) + 
-  labs(x="Chromosomal position", y="# patients", title = "E2F8 Hotspot")
-
-RFX3_lolli
-#ggsave("RFX3_lollipop.pdf")
-FCGR2A_lolli
-#ggsave("FCGR2A_lollipop.pdf") #use
-E2F8_lolli
-#ggsave("E2F8_lollipop.pdf")
 ```
 

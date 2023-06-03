@@ -101,6 +101,119 @@ write.table(seq_df, "MAIN_DATA/oncodrivefml/elements_utr3_bed_hg19_V2.bed", sep 
 Running the program :
 oncodrivefml -i oncodrivefml_input_all_datasets_hg19.txt -e elements_utr3_bed_hg19_V2.bed
 
+# prepare input files for pyclone. 
+
+We have a master file for 3' utr , 5' utr and cds mutations, in the below chucnk we create 1 file 
+for each patient containing the respective 3' ut, 5' utr and cds mutations from that patient
+( see 05 code series for pyclone analysis)
+
+```{r}
+
+rm(list=ls())
+library(GenomicRanges)
+df = read.csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+sp = split(df, df$sampleName)
+
+all_nms =c(grep("DTB", names(sp), value=T), 
+           "lucap145", "lucap78" , "lucap81" , "lucap92" , 
+           "00-010",   "00-029"  , "00-090" ,  "00-140" ,  "00-169" ,  "01_087" , 
+           "01-002"  , "01-095" ,  "01-120" ,  "02_083" ,  "02-065" ,  "03_027" , 
+           "03_081" ,  "03_082" ,  "03_139" ,  "03-130" ,  "03-163" ,  "03-192" , 
+           "04-050" ,  "04-101"  , "04-108" ,  "04-112" ,  "04-149" ,  "05_011" , 
+           "05_116" ,  "05_123" ,  "05_214" ,  "05_221" ,  "05-092" ,  "05-148" , 
+           "05-187" ,  "05-217" ,  "06_047" ,  "06_081" ,  "06-127" ,  "06-134" , 
+           "07_062" ,  "07-042" , "07-050"  , "08-006"  , "08-020"  , "08-037" , 
+           "08-093" ,  "09-006" ,  "09-012" , "10-013"  , "10-039"  , "10-056"  ,
+           "11_028" ,  "12-005" ,  "12-011" ,  "12-021" ,  "13-012" ,  "13-042" , 
+           "13-084" ,  "13-099" ,  "13-101" ,  "13-104" ,  "13-117" ,  "13-122" , 
+           "14-031" ,  "14-039" ,  "14-043" ,  "14-053" ,  "14-077" ,  "14-091" ,
+           "14-096" ,  "14-105" ,  "15-003" ,  "15-010" ,  "15-023" ,  "15-069" , 
+           "15-090" ,  "15-096" ,  "16-052" ,  "16-071"  , "98-372"  , "99-064"  )
+
+
+cds = read.delim("Master_cds_Mutations_Hyperremoved_2+.txt", header=T, stringsAsFactors=FALSE)
+utr5 = read.delim("Master_5UTR_Mutations_Hyperremoved_2+.txt", header=T, stringsAsFactors=FALSE)
+cds_nms = unique( trimws(unlist(strsplit(cds$sampleName, ",|.txt"))))
+utr5_nms  = unique( trimws(unlist(strsplit(utr5$sampleName, ",|.txt"))))
+utr5_by_sample = lapply(utr5_nms, function(x) utr5[grep(x, utr5$sampleName), ])
+cds_by_sample = lapply(cds_nms, function(x) cds[grep(x, cds$sampleName), ])
+names(cds_by_sample) = cds_nms
+names(utr5_by_sample) = utr5_nms
+
+resdir_pyclone = "input_for_pyclone"
+sequenza_all_samples= read.delim("sequenza_all_samples.txt", 
+                                 header=T, stringsAsFactors = FALSE)
+
+want_cols  = c("Chr",    "Start",  "End", "Ref", "Alt", "Func.refGene", 
+               "Gene.refGene", "Total_reads_in_normal", "Ref_reads_in_normal", "Alt_reads_in_normal", "Normal_VAF",
+               "Total_reads_in_Tumor", 
+               "Ref_reads_in_Tumor" ,"Alt_reads_in_Tumor", "Tumor_VAF", "id")
+
+
+a1 = lapply(all_nms, function(x){
+  utr3_df = sp[[match(x, names(sp))]]
+  utr5_df = utr5_by_sample[[match(x, names(utr5_by_sample) )]]
+  
+  cds_idx = match(x, names(cds_by_sample))
+  if(length(cds_idx)==0){
+    x = gsub("_", "-", x)
+    cds_idx = match(x, names(cds_by_sample))
+  }                
+  cds_df = cds_by_sample[[cds_idx]]
+  
+  utr3_df = utr3_df[, match(want_cols, colnames(utr3_df))]
+  utr5_df = utr5_df[, match(want_cols, colnames(utr5_df))]
+  cds_df = cds_df[, match(want_cols, colnames(cds_df))]
+  
+  rbind(utr3_df, utr5_df, cds_df)
+})
+
+mut_data = list.files(path = resdir, pattern = "_mutations_by_patient.txt", full.names=T)
+seq_data = list.files(path ="sequenza", 
+             pattern = "segments.txt", recursive=T, full.names=T)
+
+a2 = lapply(1:length(all_nms), function(yidx){
+  
+  x = all_nms[yidx]
+  idx = grep(x, seq_data)
+  if(length(idx)==0){
+    x = gsub("-", "_", x)
+  }                
+  seq_fname = seq_data[grep(x, seq_data)]
+  
+  mut_df = a1[[yidx]]
+  seq_df = read.delim(seq_fname, header=T, stringsAsFactors=FALSE)
+  seq_df$normal_cn = 2
+  
+  # fix the chrX and chrY  : 
+  xidx = which(seq_df$chromosome %in% c("chrX", "chrY"))
+  if(length(xidx)>=1){
+    tempdf = seq_df[xidx, ]
+    seq_df = seq_df[-xidx, ]
+    tempdf$A  = tempdf$CNt
+    tempdf$B =0
+    tempdf$normal_cn = 1
+    seq_df = rbind(seq_df, tempdf)
+  }
+  
+  mut_gr = makeGRangesFromDataFrame(mut_df)
+  seq_gr = makeGRangesFromDataFrame(seq_df, start.field="start.pos", end.field="end.pos")
+  hits = findOverlaps(mut_gr, seq_gr)
+  want_mut = mut_df[queryHits(hits), ]
+  want_seq = seq_df[subjectHits(hits), ]
+  temp1 = sequenza_all_samples[match(x, sequenza_all_samples$sampleName), "cellularity"]
+  want_mut$sample_id = x
+  want_seq$tumor_content = temp1
+  final_df = cbind(want_mut[, c("id", "sample_id", "Ref_reads_in_Tumor", "Alt_reads_in_Tumor" )], 
+                   want_seq[, c("normal_cn",  "A", "B")])
+  colnames(finaldf) = c("mutation_id" , "sample_id", "ref_counts", "var_counts", "normal_cn", 
+                        "major_cn","minor_cn")
+  write.table(final_df, file.path(resdir_pyclone, paste0(x, "_merged_data.txt")), 
+              sep ="\t", quote=FALSE, row.names=FALSE, col.names=T)
+})
+```
+
+
 # depth of coverage
 
 Depth of coverage and samtools flagstat was run on each tumor sample and its matched normal

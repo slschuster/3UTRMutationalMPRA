@@ -9,6 +9,97 @@ output:
 
 ---
 
+# fishHook analysis 
+
+```{r}
+rm(list=ls())
+library(fishHook)    
+library(rtracklayer)
+library(org.Hs.eg.db)
+
+expand_df = read.csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv", header=T, stringsAsFactors=FALSE)
+mutations <- makeGRangesFromDataFrame(expand_df, keep.extra.columns = TRUE)
+
+v22 = import("~/hsiehlab/bioinformatic_references/GATK_hg38_reference/gencode.v22.annotation.gtf")
+genes = v22[which(v22$type=="gene"), ]
+
+# calculate the G and C nucleotide frequency.
+library(BSgenome.Hsapiens.UCSC.hg38)
+genome <- BSgenome.Hsapiens.UCSC.hg38
+keep = head(seqlengths(genome), 25) 
+gr0 <- GRanges(Rle(c(names(keep))),  
+               IRanges(start =1, end =keep))
+win = unlist(tile(gr0, width=10001)) 
+seq <- getSeq(BSgenome.Hsapiens.UCSC.hg38, win) 
+alf <- alphabetFrequency(seq, as.prob=TRUE)[, c("G", "C")] 
+head(alf)
+colSums(alf)
+mcols(win) = alf # add to GRanges object
+
+chromhmm = import('reviewer_questions_March2023/try_hotspot_analysis/BSS01459_18_CALLS_segments.bed.gz') 
+hetchromdata = chromhmm %Q% (name %in% c('ZNF/Rpts', 'Het', 'Quies')) 
+
+gc =  fishHook:::Cov(data = win, field = c('C', 'G')) 
+hetchrom = Cov(hetchromdata, name = 'Heterochromatin') 
+
+fish3 = fishHook:::Fish(hypotheses = genes,
+                        events = mutations,
+                        covariates = c( gc, hetchrom),
+                        eligible= interval,
+                        idcol = 'sampleName',  
+                        na.rm = T)
+
+fish3$score()
+adv_result <- fish3$res %Q% order(p)
+sig_genes2 <- adv_result[which(adv_result$fdr < 0.05),]$gene_name
+adv_df <- as.data.frame(adv_result)
+write.table(adv_df, file.path("fishHook","fishhook_result_with_gc_content_hetchromm_model_only_utr3_region.txt"), 
+            sep="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+pdf(file.path(resdir, "plot_fishhook_with_gc_content__hetchromm_utr3_region.pdf"), width=10)
+fish3$qqp(plotly =FALSE)
+dev.off()
+```
+
+# oncodriveFML analysis
+
+First we'll liftover coordinates to hg19 
+```{r}
+df = read.csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
+
+# liftover coordinates, since ref files are made in hg19
+library(rtracklayer)
+ch = import("~/hsiehlab/bioinformatic_references/hg38ToHg19.over.chain")
+hg38_gr = makeGRangesFromDataFrame(df, keep.extra.columns=T)
+hg19_gr = liftOver(hg38_gr, ch)
+hg19_gr = unlist(hg19_gr)
+
+hg19_df = as.data.frame(hg19_gr)
+write.table(hg19_df, "3UTR_Mutations_Hyperremoved_2+_Uncombined_hg19_liftover.txt", sep ="\t", quote=FALSE, row.names=FALSE, col.names=T)
+```
+Preparing input files in R 
+```{r}
+df = read.delim("/fh/fast/hsieh_a/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/3UTR_Mutations_Hyperremoved_2+_Uncombined_hg19_liftover.txt")
+df  = df[, c("seqnames", "start", "Ref" , "Alt", "sampleName")]
+colnames(df) = c("CHROMOSOME", "POSITION", "REF", "ALT", "SAMPLE")
+df[,1] = gsub("chr", "", df[,1])
+write.table(df, "MAIN_DATA/oncodrivefml/oncodrivefml_input_all_datasets_hg19.txt", 
+            sep="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
+
+
+seq_data = read.delim("~/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_all_14k_with_location_of_3utr_8_18_2022.txt", 
+                      header=T, stringsAsFactors = FALSE)
+want = unique(seq_data$utr3_position)
+want_id = seq_data[match(want, seq_data$utr3_position), ]$Gene.refGene
+seq_gr = as(want, "GRanges")
+mcols(seq_gr)$gene_name = want_id 
+gr_site_coords = seq_gr
+seq_df = as.data.frame(seq_gr)
+seq_df = seq_df[, -c(match(c("width", "strand"), colnames(seq_df)))]
+colnames(seq_df) = c("CHROMOSOME", "START", "END", "ELEMENT")
+write.table(seq_df, "MAIN_DATA/oncodrivefml/elements_utr3_bed_hg19_V2.bed", sep ="\t", quote=F, row.names=FALSE, col.names=T)
+```
+Running the program :
+oncodrivefml -i oncodrivefml_input_all_datasets_hg19.txt -e elements_utr3_bed_hg19_V2.bed
 
 # depth of coverage
 

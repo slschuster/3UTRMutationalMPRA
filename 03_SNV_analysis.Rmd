@@ -60,47 +60,6 @@ fish3$qqp(plotly =FALSE)
 dev.off()
 ```
 
-# oncodriveFML analysis
-
-First we'll liftover coordinates to hg19 
-```{r}
-df = read.csv("3UTR_Mutations_Hyperremoved_2+_Uncombined.csv")
-
-# liftover coordinates, since ref files are made in hg19
-library(rtracklayer)
-ch = import("~/hsiehlab/bioinformatic_references/hg38ToHg19.over.chain")
-hg38_gr = makeGRangesFromDataFrame(df, keep.extra.columns=T)
-hg19_gr = liftOver(hg38_gr, ch)
-hg19_gr = unlist(hg19_gr)
-
-hg19_df = as.data.frame(hg19_gr)
-write.table(hg19_df, "3UTR_Mutations_Hyperremoved_2+_Uncombined_hg19_liftover.txt", sep ="\t", quote=FALSE, row.names=FALSE, col.names=T)
-```
-Preparing input files in R 
-```{r}
-df = read.delim("/fh/fast/hsieh_a/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/3UTR_Mutations_Hyperremoved_2+_Uncombined_hg19_liftover.txt")
-df  = df[, c("seqnames", "start", "Ref" , "Alt", "sampleName")]
-colnames(df) = c("CHROMOSOME", "POSITION", "REF", "ALT", "SAMPLE")
-df[,1] = gsub("chr", "", df[,1])
-write.table(df, "MAIN_DATA/oncodrivefml/oncodrivefml_input_all_datasets_hg19.txt", 
-            sep="\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
-
-
-seq_data = read.delim("~/hsiehlab/MAIN_DATA/UTR_Project_hg38/Samantha_master_analysis/sequences/sequences_all_14k_with_location_of_3utr_8_18_2022.txt", 
-                      header=T, stringsAsFactors = FALSE)
-want = unique(seq_data$utr3_position)
-want_id = seq_data[match(want, seq_data$utr3_position), ]$Gene.refGene
-seq_gr = as(want, "GRanges")
-mcols(seq_gr)$gene_name = want_id 
-gr_site_coords = seq_gr
-seq_df = as.data.frame(seq_gr)
-seq_df = seq_df[, -c(match(c("width", "strand"), colnames(seq_df)))]
-colnames(seq_df) = c("CHROMOSOME", "START", "END", "ELEMENT")
-write.table(seq_df, "MAIN_DATA/oncodrivefml/elements_utr3_bed_hg19_V2.bed", sep ="\t", quote=F, row.names=FALSE, col.names=T)
-```
-Running the program :
-oncodrivefml -i oncodrivefml_input_all_datasets_hg19.txt -e elements_utr3_bed_hg19_V2.bed
-
 # prepare input files for pyclone. 
 
 We have a master file for 3' utr , 5' utr and cds mutations, in the below chucnk we create 1 file 

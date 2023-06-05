@@ -9,6 +9,49 @@ output:
 
 ---
 
+
+# Sequenza 
+
+For each tumor normal pair, sequenza was run using the following code snippet.
+
+```{}
+sequenza-utils bam2seqz -n $normal_bam -t $TUMOR_BAM --fasta ${ALIGNMENT_REF_GENOME} -gc ${seq_hg38_wig} -o ${sampleName}.seqz.gz
+sequenza-utils seqz_binning --seqz ${sampleName}.seqz.gz -w 50 -o small.${sampleName}.seqz.gz
+```
+
+Once sequenza was run, the results were extracted in R for each sample using the following code.
+```{r}
+want = list.files(pattern = "small")
+r1 = lapply(want, function(data.file){
+    sampleName = gsub("small.|.seqz.gz", "", basename(data.file))
+    message("Starting: ", sampleName)
+    tryCatch({
+        test <- sequenza.extract(data.file, verbose = TRUE, 
+                                 chromosome.list = paste0("chr", c(1:22,"X", "Y") ))
+        
+        CP <- sequenza.fit(test, female = FALSE,  XY = c(X = "chrX", Y = "chrY"))
+        
+        sequenza.results(sequenza.extract = test,
+                         cp.table = CP, sample.id = sampleName,
+                         female = FALSE, XY = c(X = "chrX", Y = "chrY"), 
+                         out.dir=file.path(paste0(sampleName, "_results")) )
+    }, warning = function(w) {
+        message("failed for sample:", sampleName)
+        #warning-handler-code
+    }, error = function(e) {
+        message("failed for sample:", sampleName)
+        #error-handler-code
+    }, finally = {
+        #cleanup-code
+    })
+ })
+
+```
+
+
+
+
+
 # prepare input files for pyclone. 
 
 We have a master file for 3' utr , 5' utr and cds mutations, in the below chucnk we create 1 file 

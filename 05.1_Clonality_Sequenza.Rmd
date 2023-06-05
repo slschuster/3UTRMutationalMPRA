@@ -47,7 +47,7 @@ r1 = lapply(want, function(data.file){
  })
 
 ```
-Next we extracted the cellular prevlanace for each tumor/normal pair
+Next we extracted the tumor ploidy for each sample- needed for pyclone input
 
 ```{r}
 fls  = list.files(pattern = "_confints_CP.txt", recursive=T, full.names=T)

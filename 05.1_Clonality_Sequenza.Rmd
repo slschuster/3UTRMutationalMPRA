@@ -47,9 +47,19 @@ r1 = lapply(want, function(data.file){
  })
 
 ```
+Next we extracted the cellular prevlanace for each tumor/normal pair
 
+```{r}
+fls  = list.files(pattern = "_confints_CP.txt", recursive=T, full.names=T)
 
-
+all_df = lapply(fls, function(x){
+  df = read.delim(x, header=T, stringsAsFactors = FALSE)
+  df$sampleName = gsub("_confints_CP.txt", "", basename(x))
+  df
+})
+write.table(ans, "sequenza_all_samples.txt", 
+            quote=FALSE, row.names=FALSE, col.names = T)
+```
 
 
 # prepare input files for pyclone. 

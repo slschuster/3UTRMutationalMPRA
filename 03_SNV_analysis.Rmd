@@ -92,6 +92,45 @@ finaldf = cbind(sampleName= basename(fl_nms),
 write.table(finaldf, file.path( "Read_depth_Quigley_results_10_25_2022.txt"),
             sep = "\t", quote=FALSE, row.names=FALSE, col.names=TRUE)
 ```
+
+# coverage for 3'UTR of individual genes 
+
+```{r}
+library(GenomicRanges)
+library(rtracklayer)
+gtf = import("~/hsiehlab/bioinformatic_references/GATK_hg38_reference/gencode.v39.primary_assembly.annotation.gtf")
+gtf = gtf[which(gtf$type=="gene"), ]
+goi = c("FLRT2", "LPP", "NTRK3", "XKR4", "MMP16", "SH3TC2", 
+        "GRIN2A", "GUCY1A2", "SAMD12", "GABRA4", "HOOK3", "LRCH3",
+        "LRRC27", "NOS1", "AFF2", "EIF5AL1", "FOXA1", 
+        "HCN1", "HHIP", "KCNJ12", "KPNA6", "PDE1C", "SOX5", 
+        "ST8SIA4", "ZNF264")
+want_gr = gtf[match(goi, gtf$gene_name), ]
+mcols(want_gr) = mcols(want_gr)[,"gene_name"]
+
+fls = list.files(pattern = "sample_interval_summary")
+l1 = lapply(fls, function(x){
+    message(x)
+    df  = read.csv(x)
+    gr = as(df$Target, "GRanges")
+    mcols(gr) = df
+    gene_hits = findOverlaps(want_gr, gr )
+    gene_hits = as.data.frame(gene_hits)
+    sp = split(gene_hits, gene_hits[,1])
+    ans = lapply(sp, function(x) max(df[x[[2]], ]$average_coverage))
+    ans
+})
+
+gene_cvg = do.call(cbind, l1)
+rownames(gene_cvg) = goi
+colnames(gene_cvg) = basename(fls)
+writedf = cbind(patient = rownames(gene_cvg), gene_cvg)
+write.table(writedf, file.path(resdir, "average_coverge_3utr_25genes.txt"), 
+            sep ="\t", quote=FALSE, row.names=FALSE, col.names=T)
+
+```
+
+
 # Tumor mutational Burden 
 In the code chunk below, we find the TMB for each tumor sample included in our analysis.
 
